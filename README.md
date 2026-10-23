@@ -26,6 +26,16 @@ The app starts in the mode it was closed in.
 
 Tick **Always on top** in the top bar to keep Paster above other windows. This is remembered too.
 
+**View > Action buttons** makes the buttons easier to hit in Action mode: Normal, Large, Extra large, or
+**Fill the window** (the buttons share the whole height). The choice is saved in the setup file, where you can
+also type exact numbers:
+
+```json
+"actionButtonSize": "fixed",   // or "fill"
+"actionButtonHeight": 60,      // pixels, used with "fixed"
+"actionFontSize": 18
+```
+
 ## Setup files
 
 Each setup is **one JSON file** holding the table list, variables, joiners and buttons, so you can copy it
