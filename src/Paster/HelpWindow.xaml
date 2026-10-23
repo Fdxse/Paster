@@ -1,0 +1,108 @@
+<Window x:Class="Paster.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Paster - Quick guide" Height="640" Width="640" MinHeight="300" MinWidth="400"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <!-- The whole guide is one scrollable document. Text in element content is plain text,
+         so {tokens} can be written as-is (only attribute values treat { as special). -->
+    <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" IsToolBarVisible="False">
+        <FlowDocument FontFamily="Segoe UI" FontSize="13" PagePadding="20,12" TextAlignment="Left">
+            <FlowDocument.Resources>
+                <Style x:Key="SectionHeading" TargetType="Paragraph">
+                    <Setter Property="FontSize" Value="16" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                    <Setter Property="Margin" Value="0,14,0,4" />
+                </Style>
+                <Style x:Key="CodeExample" TargetType="Paragraph">
+                    <Setter Property="FontFamily" Value="Consolas" />
+                    <Setter Property="Background" Value="#FFF4F6FA" />
+                    <Setter Property="Padding" Value="8,4" />
+                    <Setter Property="Margin" Value="0,2,0,6" />
+                </Style>
+            </FlowDocument.Resources>
+
+            <Paragraph FontSize="20" FontWeight="SemiBold" Margin="0,0,0,4">Paster quick guide</Paragraph>
+            <Paragraph>
+                Paster turns a list of table names into buttons. Each button copies a finished piece of text
+                (SQL, a description, a file name...) to the clipboard. You describe the text once with
+                templates, and Paster fills it in for every table.
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">1. Table list</Paragraph>
+            <Paragraph>
+                One table per line. The name is available in templates as {table}.
+                After a ';' you can override variables for that line only:
+            </Paragraph>
+            <Paragraph Style="{StaticResource CodeExample}">
+                DBTable<LineBreak />Customer; schema=stg<LineBreak />SalesOrder; prefix=Fact; suffix=
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">2. Global variables</Paragraph>
+            <Paragraph>One name=value per line. Used by every table unless a table line overrides it.</Paragraph>
+            <Paragraph Style="{StaticResource CodeExample}">
+                prefix=Dim<LineBreak />schema=wrk
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">3. Joiners</Paragraph>
+            <Paragraph>
+                New variables built from other variables, one name=template per line. A joiner can use other joiners.
+                If two joiners use each other in a loop, the field turns red.
+            </Paragraph>
+            <Paragraph Style="{StaticResource CodeExample}">
+                fulltable={prefix}_{table}{suffix}<LineBreak />fullname=[{database}].[{schema}].[{fulltable}]
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">4. Buttons</Paragraph>
+            <Paragraph>One template per line. Every line becomes a button for the selected table.</Paragraph>
+            <Paragraph Style="{StaticResource CodeExample}">
+                Begin work on {table}<LineBreak />TRUNCATE TABLE [{schema}].[{fulltable}];
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">5. Tokens and transforms</Paragraph>
+            <List MarkerStyle="Disc">
+                <ListItem><Paragraph>{name} inserts a variable or joiner.</Paragraph></ListItem>
+                <ListItem><Paragraph>{name:upper} applies a transform. Chain them: {table:snake:upper}.</Paragraph></ListItem>
+                <ListItem><Paragraph>Transforms: upper, lower, trim, pascal (DbTable), camel (dbTable), snake (db_table), kebab (db-table), title (Db Table).</Paragraph></ListItem>
+                <ListItem><Paragraph>{{ and }} give a literal { or }. Square brackets are plain text, so SQL like [{schema}] just works.</Paragraph></ListItem>
+                <ListItem><Paragraph>Lookup order: the table line's override, then {table}, then global variables, then joiners.</Paragraph></ListItem>
+                <ListItem><Paragraph>Lines starting with // are comments in all four editors.</Paragraph></ListItem>
+            </List>
+
+            <Paragraph Style="{StaticResource SectionHeading}">6. Soft errors</Paragraph>
+            <Paragraph>
+                Nothing is ever blocked. A field with a problem turns light red and the error is listed under it.
+                Table rows and buttons with problems are light red too; hover over them to see why.
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">7. Setup and Action mode</Paragraph>
+            <List MarkerStyle="Disc">
+                <ListItem><Paragraph><Bold>Setup</Bold> shows the four editors. The buttons update as you type, so they work as a live preview.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Action</Bold> hides the editors and shows the action log. Use it when you are working through the tables.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Always on top</Bold> keeps Paster above other windows.</Paragraph></ListItem>
+            </List>
+
+            <Paragraph Style="{StaticResource SectionHeading}">8. Using the buttons</Paragraph>
+            <List MarkerStyle="Disc">
+                <ListItem><Paragraph><Bold>Click</Bold> copies the text and greys the button out.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Ctrl+click</Bold> a greyed-out button to make it clickable again.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Reset buttons</Bold> makes every button for the selected table clickable again.</Paragraph></ListItem>
+                <ListItem><Paragraph>The table list shows how many buttons you have copied, e.g. 2/5.</Paragraph></ListItem>
+            </List>
+
+            <Paragraph Style="{StaticResource SectionHeading}">9. Action log</Paragraph>
+            <Paragraph>
+                In Action mode every copy, re-enable and reset is listed at the bottom with time and table, and written to
+                logs\paster-YYYY-MM-DD.log next to Paster.exe. Clear only empties the list on screen.
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">10. Files</Paragraph>
+            <List MarkerStyle="Disc">
+                <ListItem><Paragraph>Each setup is one JSON file. Use File: New (Ctrl+N), Open (Ctrl+O), Open recent, Save (Ctrl+S), Save as (Ctrl+Shift+S).</Paragraph></ListItem>
+                <ListItem><Paragraph>A * in the title bar means unsaved changes. Paster asks before throwing them away.</Paragraph></ListItem>
+                <ListItem><Paragraph>Drag a .json file onto the window (or onto Paster.exe) to open it.</Paragraph></ListItem>
+                <ListItem><Paragraph>Paster starts with the file you used last.</Paragraph></ListItem>
+            </List>
+        </FlowDocument>
+    </FlowDocumentScrollViewer>
+</Window>
