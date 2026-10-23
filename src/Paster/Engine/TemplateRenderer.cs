@@ -3,7 +3,7 @@ using System.Text;
 namespace Paster.Engine;
 
 /// <summary>
-/// Renders templates like "TRUNCATE TABLE [{schema}].[{fulltable:upper}];" for one table.
+/// Renders templates like "TRUNCATE TABLE [{schema}].[{fulltable:upper}];" for one step (a table, in a layer when layers are used).
 ///
 /// Token syntax:
 ///   {name}                 the value of a variable or joiner
@@ -13,23 +13,28 @@ namespace Paster.Engine;
 ///
 /// Lookup order for a name:
 ///   1. the per-line override on the table line ("DBTable; schema=stg")
-///   2. the built-in {table}
-///   3. the global variables
-///   4. the joiners (rendered recursively, loops are reported as errors)
+///   2. the layer's variables ("dwh; schema=dwh")
+///   3. the built-in {table} and {layer}
+///   4. the global variables
+///   5. the joiners (rendered recursively, loops are reported as errors)
 /// </summary>
 public sealed class TemplateRenderer
 {
     private readonly ParsedSetup parsedSetup;
     private readonly TableEntry tableEntry;
 
-    public TemplateRenderer(ParsedSetup parsedSetup, TableEntry tableEntry)
+    /// <summary>The layer of the step, or null when the setup has no layers.</summary>
+    private readonly LayerEntry? layerEntry;
+
+    public TemplateRenderer(ParsedSetup parsedSetup, WorkStep workStep)
     {
         this.parsedSetup = parsedSetup;
-        this.tableEntry = tableEntry;
+        tableEntry = workStep.Table;
+        layerEntry = workStep.Layer;
     }
 
     /// <summary>
-    /// Renders a template (e.g. a button line) for the table this renderer was created for.
+    /// Renders a template (e.g. a button line) for the step this renderer was created for.
     /// </summary>
     public RenderResult Render(string template)
     {
@@ -149,9 +154,19 @@ public sealed class TemplateRenderer
             return overrideValue;
         }
 
+        if (layerEntry is not null && layerEntry.Variables.TryGetValue(variableName, out string? layerValue))
+        {
+            return layerValue;
+        }
+
         if (string.Equals(variableName, SetupParser.TableVariableName, StringComparison.OrdinalIgnoreCase))
         {
             return tableEntry.Name;
+        }
+
+        if (layerEntry is not null && string.Equals(variableName, SetupParser.LayerVariableName, StringComparison.OrdinalIgnoreCase))
+        {
+            return layerEntry.Name;
         }
 
         if (parsedSetup.GlobalVariables.TryGetValue(variableName, out string? globalValue))

@@ -9,7 +9,7 @@
         AllowDrop="True" PreviewDragOver="Window_DragOver" PreviewDrop="Window_Drop">
 
     <Window.Resources>
-        <!-- Shared look for the four setup editors: monospace, multi-line, no wrapping. -->
+        <!-- Shared look for the five setup editors: monospace, multi-line, no wrapping. -->
         <Style x:Key="EditorTextBoxStyle" TargetType="TextBox">
             <Setter Property="FontFamily" Value="Consolas" />
             <Setter Property="FontSize" Value="13" />
@@ -139,7 +139,7 @@
                           Checked="AlwaysOnTopCheckBox_Changed" Unchecked="AlwaysOnTopCheckBox_Changed"
                           ToolTip="Keep Paster above other windows so it doesn't get hidden" />
                 <!-- Mode switch: Setup shows the editors, Action shows only the tables and buttons. -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,12,0">
                     <RadioButton x:Name="SetupModeRadioButton" GroupName="Mode" Content="Setup" Padding="14,3"
                                  Style="{StaticResource {x:Type ToggleButton}}"
                                  Checked="ModeRadioButton_Checked"
@@ -148,6 +148,18 @@
                                  Style="{StaticResource {x:Type ToggleButton}}"
                                  Checked="ModeRadioButton_Checked"
                                  ToolTip="Hide the editors and just use the buttons" />
+                </StackPanel>
+                <!-- Walk order, only shown when the setup has layers. Part of the setup file. -->
+                <StackPanel x:Name="WalkOrderPanel" DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,12,0" Visibility="Collapsed">
+                    <TextBlock Text="Order:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#FF505050" />
+                    <RadioButton x:Name="ByLayerRadioButton" GroupName="WalkOrder" Content="By layer" Padding="10,3"
+                                 Style="{StaticResource {x:Type ToggleButton}}"
+                                 Checked="WalkOrderRadioButton_Checked"
+                                 ToolTip="Every table in the first layer, then every table in the next layer, and so on" />
+                    <RadioButton x:Name="ByTableRadioButton" GroupName="WalkOrder" Content="By table" Padding="10,3"
+                                 Style="{StaticResource {x:Type ToggleButton}}"
+                                 Checked="WalkOrderRadioButton_Checked"
+                                 ToolTip="The first table through every layer, then the next table, and so on" />
                 </StackPanel>
                 <TextBlock x:Name="StatusTextBlock" VerticalAlignment="Center" Foreground="#FF505050"
                            TextTrimming="CharacterEllipsis"
@@ -188,16 +200,20 @@
                 <ColumnDefinition x:Name="SetupColumn" Width="420" MinWidth="0" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left: table list -->
+            <!-- Left: the tables, or the steps (table · layer) when layers are used -->
             <DockPanel Grid.Column="0">
-                <TextBlock DockPanel.Dock="Top" Text="Tables" Style="{StaticResource HeaderTextStyle}" />
-                <ListBox x:Name="TableListBox" SelectionChanged="TableListBox_SelectionChanged"
+                <TextBlock x:Name="StepListHeader" DockPanel.Dock="Top" Text="Tables" Style="{StaticResource HeaderTextStyle}" />
+                <ListBox x:Name="StepListBox" SelectionChanged="StepListBox_SelectionChanged"
                          HorizontalContentAlignment="Stretch">
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
                             <Setter Property="Padding" Value="4,3" />
                             <Setter Property="ToolTip" Value="{Binding ErrorText}" />
                             <Style.Triggers>
+                                <!-- Every button copied: the row is greyed out. -->
+                                <DataTrigger Binding="{Binding IsComplete}" Value="True">
+                                    <Setter Property="Foreground" Value="#FF9A9A9A" />
+                                </DataTrigger>
                                 <DataTrigger Binding="{Binding HasError}" Value="True">
                                     <Setter Property="Background" Value="{StaticResource SoftErrorBrush}" />
                                 </DataTrigger>
@@ -208,7 +224,7 @@
                         <DataTemplate>
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Right" Text="{Binding ProgressText}" Foreground="#FF808080" Margin="8,0,0,0" />
-                                <TextBlock Text="{Binding TableName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding StepName}" TextTrimming="CharacterEllipsis" />
                             </DockPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -217,22 +233,22 @@
 
             <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent" />
 
-            <!-- Middle: buttons for the selected table -->
+            <!-- Middle: buttons for the selected table / step -->
             <DockPanel Grid.Column="2">
                 <TextBlock x:Name="SelectedTableHeader" DockPanel.Dock="Top" Text="Buttons" Style="{StaticResource HeaderTextStyle}" />
 
-                <!-- Progress over all tables: copied buttons out of all buttons, plus the reset buttons. -->
+                <!-- Progress over all tables / steps: copied buttons out of all buttons, plus the reset buttons. -->
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                     <Button DockPanel.Dock="Right" Content="Reset all" Padding="10,2" Margin="6,0,0,0"
                             Click="ResetAllButton_Click"
-                            ToolTip="Make every button for every table clickable again" />
-                    <Button DockPanel.Dock="Right" Content="Reset table" Padding="10,2" Margin="6,0,0,0"
-                            Click="ResetTableButton_Click"
-                            ToolTip="Make every button for the selected table clickable again" />
+                            ToolTip="Make every button everywhere clickable again" />
+                    <Button x:Name="ResetStepButton" DockPanel.Dock="Right" Content="Reset table" Padding="10,2" Margin="6,0,0,0"
+                            Click="ResetStepButton_Click"
+                            ToolTip="Make every button in the selected row clickable again" />
                     <TextBlock x:Name="OverallProgressText" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,0,0"
                                Foreground="#FF505050" Text="0 / 0" />
                     <ProgressBar x:Name="OverallProgressBar" Height="14" Minimum="0" Maximum="1" Value="0"
-                                 ToolTip="Copied buttons out of all buttons, over all tables" />
+                                 ToolTip="Copied buttons out of all buttons, over the whole list" />
                 </DockPanel>
 
                 <ScrollViewer x:Name="ButtonScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -268,6 +284,9 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="0.6*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -278,21 +297,25 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Table list   (Name; var=value; ...)" Style="{StaticResource HeaderTextStyle}" />
+                <TextBlock Grid.Row="0" Text="Table list   (Name; var=value; layers=a,b)" Style="{StaticResource HeaderTextStyle}" />
                 <TextBox Grid.Row="1" x:Name="TablesTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
                 <TextBlock Grid.Row="2" x:Name="TablesErrorText" Style="{StaticResource ErrorTextStyle}" />
 
-                <TextBlock Grid.Row="3" Text="Global variables   (name=value)" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
-                <TextBox Grid.Row="4" x:Name="VariablesTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="5" x:Name="VariablesErrorText" Style="{StaticResource ErrorTextStyle}" />
+                <TextBlock Grid.Row="3" Text="Layers   (name; var=value; ...)   optional" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
+                <TextBox Grid.Row="4" x:Name="LayersTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                <TextBlock Grid.Row="5" x:Name="LayersErrorText" Style="{StaticResource ErrorTextStyle}" />
 
-                <TextBlock Grid.Row="6" Text="Joiners   (name=template with {variables})" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
-                <TextBox Grid.Row="7" x:Name="JoinersTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="8" x:Name="JoinersErrorText" Style="{StaticResource ErrorTextStyle}" />
+                <TextBlock Grid.Row="6" Text="Global variables   (name=value)" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
+                <TextBox Grid.Row="7" x:Name="VariablesTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                <TextBlock Grid.Row="8" x:Name="VariablesErrorText" Style="{StaticResource ErrorTextStyle}" />
 
-                <TextBlock Grid.Row="9" Text="Buttons   (one template per line, {name:transform})" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
-                <TextBox Grid.Row="10" x:Name="ButtonsTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="11" x:Name="ButtonsErrorText" Style="{StaticResource ErrorTextStyle}" />
+                <TextBlock Grid.Row="9" Text="Joiners   (name=template with {variables})" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
+                <TextBox Grid.Row="10" x:Name="JoinersTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                <TextBlock Grid.Row="11" x:Name="JoinersErrorText" Style="{StaticResource ErrorTextStyle}" />
+
+                <TextBlock Grid.Row="12" Text="Buttons   (one template per line, @layer to limit)" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
+                <TextBox Grid.Row="13" x:Name="ButtonsTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                <TextBlock Grid.Row="14" x:Name="ButtonsErrorText" Style="{StaticResource ErrorTextStyle}" />
             </Grid>
         </Grid>
     </DockPanel>

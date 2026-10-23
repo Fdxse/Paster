@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Paster.Engine;
 
 /// <summary>
-/// Turns the raw text of the four editors (tables, variables, joiners, buttons) into a <see cref="ParsedSetup"/>.
+/// Turns the raw text of the five editors (tables, layers, variables, joiners, buttons) into a <see cref="ParsedSetup"/>.
 /// Rules shared by all editors:
 ///   - blank lines are ignored
 ///   - lines starting with "//" are comments and are ignored
@@ -13,17 +13,32 @@ public static class SetupParser
     /// <summary>The built-in variable that always holds the current table name.</summary>
     public const string TableVariableName = "table";
 
+    /// <summary>The built-in variable that holds the current layer name (only when layers are used).</summary>
+    public const string LayerVariableName = "layer";
+
+    /// <summary>The table line setting that limits a table to some layers: "DBTable; layers=stg,wrk".</summary>
+    public const string LayersSettingName = "layers";
+
+    /// <summary>Allowed layer names: letters, digits, _ and -, so they can be listed with commas.</summary>
+    private static readonly Regex LayerNamePattern = new(@"^[A-Za-z0-9_\-]+$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A button line that starts with layer tags: "@stg,wrk TRUNCATE TABLE ...". Group 1 is the list, group 2 the rest.
+    /// </summary>
+    private static readonly Regex LayerTagPattern = new(@"^@([A-Za-z0-9_\-]+(?:\s*,\s*[A-Za-z0-9_\-]+)*)\s+(\S.*)$", RegexOptions.Compiled);
+
     /// <summary>Allowed variable / joiner names: a letter or _ followed by letters, digits or _.</summary>
     private static readonly Regex VariableNamePattern = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
 
     /// <summary>
-    /// Parses all four editors and then checks joiners and button templates against every table,
+    /// Parses all five editors and then checks joiners and button templates against every step (table × layer),
     /// so that unknown variables and joiner loops show up as soft errors.
     /// </summary>
-    public static ParsedSetup Parse(string tablesText, string variablesText, string joinersText, string buttonsText)
+    public static ParsedSetup Parse(string tablesText, string layersText, string variablesText, string joinersText, string buttonsText)
     {
         var parsedSetup = new ParsedSetup();
 
+        ParseLayers(layersText, parsedSetup);
         ParseTables(tablesText, parsedSetup);
         ParseVariables(variablesText, parsedSetup);
         ParseJoiners(joinersText, parsedSetup);
@@ -75,38 +90,149 @@ public static class SetupParser
                 tableEntry.Errors.Add($"Line {lineNumber}: the table name is missing (nothing before the first ';').");
             }
 
-            // Every part after the table name should be "name=value".
-            foreach (string overridePart in lineParts.Skip(1))
+            ParseNameValueParts(lineParts.Skip(1), lineNumber, tableEntry.Overrides, tableEntry.Errors);
+
+            // "layers=stg,wrk" is not a variable: it picks the layers this table goes through.
+            if (tableEntry.Overrides.Remove(LayersSettingName, out string? layerListText))
             {
-                string trimmedPart = overridePart.Trim();
-                if (trimmedPart.Length == 0)
-                {
-                    // Allows a trailing ';' without complaining.
-                    continue;
-                }
-
-                if (!TrySplitNameValue(trimmedPart, out string overrideName, out string overrideValue))
-                {
-                    tableEntry.Errors.Add($"Line {lineNumber}: \"{trimmedPart}\" should look like name=value.");
-                    continue;
-                }
-
-                if (!IsValidVariableName(overrideName))
-                {
-                    tableEntry.Errors.Add($"Line {lineNumber}: \"{overrideName}\" is not a valid variable name.");
-                    continue;
-                }
-
-                if (tableEntry.Overrides.ContainsKey(overrideName))
-                {
-                    tableEntry.Errors.Add($"Line {lineNumber}: \"{overrideName}\" is set more than once (the last one wins).");
-                }
-
-                tableEntry.Overrides[overrideName] = overrideValue;
+                tableEntry.LayerNames = ParseTableLayerList(layerListText, lineNumber, parsedSetup, tableEntry.Errors);
             }
 
             parsedSetup.TableErrors.AddRange(tableEntry.Errors);
             parsedSetup.Tables.Add(tableEntry);
+        }
+    }
+
+    /// <summary>
+    /// The "name=value" parts after the name on a table or layer line ("DBTable; schema=stg; prefix=Fact").
+    /// </summary>
+    private static void ParseNameValueParts(IEnumerable<string> lineParts, int lineNumber, Dictionary<string, string> values, List<string> errors)
+    {
+        foreach (string linePart in lineParts)
+        {
+            string trimmedPart = linePart.Trim();
+            if (trimmedPart.Length == 0)
+            {
+                // Allows a trailing ';' without complaining.
+                continue;
+            }
+
+            if (!TrySplitNameValue(trimmedPart, out string variableName, out string variableValue))
+            {
+                errors.Add($"Line {lineNumber}: \"{trimmedPart}\" should look like name=value.");
+                continue;
+            }
+
+            if (!IsValidVariableName(variableName))
+            {
+                errors.Add($"Line {lineNumber}: \"{variableName}\" is not a valid variable name.");
+                continue;
+            }
+
+            if (values.ContainsKey(variableName))
+            {
+                errors.Add($"Line {lineNumber}: \"{variableName}\" is set more than once (the last one wins).");
+            }
+
+            values[variableName] = variableValue;
+        }
+    }
+
+    /// <summary>
+    /// Checks the list in "layers=stg,wrk" against the layer editor. Unknown names are reported
+    /// (and simply never match). Returns null, meaning every layer, if the list can't be used.
+    /// </summary>
+    private static List<string>? ParseTableLayerList(string layerListText, int lineNumber, ParsedSetup parsedSetup, List<string> errors)
+    {
+        if (parsedSetup.Layers.Count == 0)
+        {
+            errors.Add($"Line {lineNumber}: \"{LayersSettingName}=\" is used, but no layers are defined in the Layers editor.");
+            return null;
+        }
+
+        List<string> layerNames = SplitLayerList(layerListText);
+        if (layerNames.Count == 0)
+        {
+            errors.Add($"Line {lineNumber}: \"{LayersSettingName}=\" needs at least one layer, e.g. {LayersSettingName}=stg,wrk.");
+            return null;
+        }
+
+        ReportUnknownLayers(layerNames, $"Line {lineNumber}", parsedSetup, errors);
+        return layerNames;
+    }
+
+    /// <summary>
+    /// "stg, wrk ,dwh" -> ["stg", "wrk", "dwh"].
+    /// </summary>
+    private static List<string> SplitLayerList(string layerListText)
+    {
+        return layerListText
+            .Split(',')
+            .Select(layerName => layerName.Trim())
+            .Where(layerName => layerName.Length > 0)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Adds an error for every name in the list that is not a layer.
+    /// </summary>
+    private static void ReportUnknownLayers(List<string> layerNames, string where, ParsedSetup parsedSetup, List<string> errors)
+    {
+        foreach (string layerName in layerNames)
+        {
+            bool isKnownLayer = parsedSetup.Layers.Any(layerEntry => string.Equals(layerEntry.Name, layerName, StringComparison.OrdinalIgnoreCase));
+            if (!isKnownLayer)
+            {
+                string knownLayers = string.Join(", ", parsedSetup.Layers.Select(layerEntry => layerEntry.Name));
+                errors.Add($"{where}: unknown layer \"{layerName}\" (layers: {knownLayers}).");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Layer lines look like "stg" or "dwh; schema=dwh; prefix=Dim". They are listed in the order to work through them.
+    /// </summary>
+    private static void ParseLayers(string layersText, ParsedSetup parsedSetup)
+    {
+        foreach ((int lineNumber, string line) in MeaningfulLines(layersText))
+        {
+            string[] lineParts = line.Split(';');
+            var layerEntry = new LayerEntry
+            {
+                LineNumber = lineNumber,
+                Name = lineParts[0].Trim(),
+            };
+
+            if (layerEntry.Name.Length == 0)
+            {
+                parsedSetup.LayerErrors.Add($"Line {lineNumber}: the layer name is missing (nothing before the first ';').");
+                continue;
+            }
+
+            if (!LayerNamePattern.IsMatch(layerEntry.Name))
+            {
+                parsedSetup.LayerErrors.Add($"Line {lineNumber}: \"{layerEntry.Name}\" can only contain letters, digits, _ and -.");
+                continue;
+            }
+
+            if (parsedSetup.Layers.Any(existingLayer => string.Equals(existingLayer.Name, layerEntry.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                parsedSetup.LayerErrors.Add($"Line {lineNumber}: the layer \"{layerEntry.Name}\" is listed more than once (only the first is used).");
+                continue;
+            }
+
+            ParseNameValueParts(lineParts.Skip(1), lineNumber, layerEntry.Variables, parsedSetup.LayerErrors);
+
+            // {table} and {layer} are built in; a layer can't change them.
+            foreach (string builtInName in new[] { TableVariableName, LayerVariableName, LayersSettingName })
+            {
+                if (layerEntry.Variables.Remove(builtInName))
+                {
+                    parsedSetup.LayerErrors.Add($"Line {lineNumber}: \"{builtInName}\" is built in and can't be set on a layer.");
+                }
+            }
+
+            parsedSetup.Layers.Add(layerEntry);
         }
     }
 
@@ -132,6 +258,12 @@ public static class SetupParser
             if (string.Equals(variableName, TableVariableName, StringComparison.OrdinalIgnoreCase))
             {
                 parsedSetup.VariableErrors.Add($"Line {lineNumber}: \"{TableVariableName}\" is built in and always holds the table name.");
+                continue;
+            }
+
+            if (parsedSetup.Layers.Count > 0 && string.Equals(variableName, LayerVariableName, StringComparison.OrdinalIgnoreCase))
+            {
+                parsedSetup.VariableErrors.Add($"Line {lineNumber}: \"{LayerVariableName}\" is built in and always holds the layer name.");
                 continue;
             }
 
@@ -169,6 +301,12 @@ public static class SetupParser
                 continue;
             }
 
+            if (parsedSetup.Layers.Count > 0 && string.Equals(joinerName, LayerVariableName, StringComparison.OrdinalIgnoreCase))
+            {
+                parsedSetup.JoinerErrors.Add($"Line {lineNumber}: \"{LayerVariableName}\" is built in and cannot be a joiner.");
+                continue;
+            }
+
             if (parsedSetup.GlobalVariables.ContainsKey(joinerName))
             {
                 parsedSetup.JoinerErrors.Add($"Line {lineNumber}: \"{joinerName}\" is already a global variable, so this joiner is never used.");
@@ -191,6 +329,8 @@ public static class SetupParser
 
     /// <summary>
     /// Every non-blank, non-comment line is one button (trimmed).
+    /// When layers are used, a line can start with "@stg,wrk " to show that button in those layers only
+    /// (also in front of a block: "@stg &lt;&lt;&lt; Load").
     /// A multi-line button is written as a block, and every line inside it is kept exactly as typed:
     ///   &lt;&lt;&lt; Truncate and load {table}
     ///   TRUNCATE TABLE [{schema}].[{fulltable}];
@@ -213,9 +353,20 @@ public static class SetupParser
                 continue;
             }
 
+            // "@stg,wrk ..." limits the button to some layers. Only read as tags when layers exist,
+            // so a line that happens to start with @ stays plain text in a setup without layers.
+            List<string>? buttonLayerNames = null;
+            Match layerTagMatch = LayerTagPattern.Match(trimmedLine);
+            if (parsedSetup.Layers.Count > 0 && layerTagMatch.Success)
+            {
+                buttonLayerNames = SplitLayerList(layerTagMatch.Groups[1].Value);
+                ReportUnknownLayers(buttonLayerNames, $"Line {lineNumber}", parsedSetup, parsedSetup.ButtonErrors);
+                trimmedLine = layerTagMatch.Groups[2].Value.Trim();
+            }
+
             if (!trimmedLine.StartsWith(BlockStartMarker, StringComparison.Ordinal))
             {
-                parsedSetup.ButtonTemplates.Add(new ButtonTemplate { LineNumber = lineNumber, Template = trimmedLine });
+                parsedSetup.ButtonTemplates.Add(new ButtonTemplate { LineNumber = lineNumber, Template = trimmedLine, LayerNames = buttonLayerNames });
                 continue;
             }
 
@@ -265,42 +416,53 @@ public static class SetupParser
                 LineNumber = lineNumber,
                 Template = string.Join(Environment.NewLine, blockLines),
                 Label = labelText.Length > 0 ? labelText : null,
+                LayerNames = buttonLayerNames,
             });
         }
     }
 
     /// <summary>
-    /// Renders every joiner and every button template for every table and collects the errors
+    /// Renders every joiner and every button template for every step (table × layer) and collects the errors
     /// into the joiner / button sections. Uses a placeholder table when the table list is empty
-    /// so that typos are still caught. An error that only happens for some tables says which ones.
+    /// so that typos are still caught. An error that only happens for some steps says which ones.
     /// </summary>
     private static void ValidateByRendering(ParsedSetup parsedSetup)
     {
         bool usingPlaceholderTable = parsedSetup.Tables.Count == 0;
-        List<TableEntry> tablesToCheck = usingPlaceholderTable
-            ? new List<TableEntry> { new() { LineNumber = 0, Name = "Table" } }
-            : parsedSetup.Tables;
+        List<WorkStep> stepsToCheck;
+        if (usingPlaceholderTable)
+        {
+            // No tables yet: check against a made-up table, in every layer (if any).
+            var placeholderTable = new TableEntry { LineNumber = 0, Name = "Table" };
+            stepsToCheck = parsedSetup.Layers.Count == 0
+                ? new List<WorkStep> { new() { Table = placeholderTable } }
+                : parsedSetup.Layers.Select(layerEntry => new WorkStep { Table = placeholderTable, Layer = layerEntry }).ToList();
+        }
+        else
+        {
+            stepsToCheck = WorkPlanner.BuildSteps(parsedSetup, WalkOrder.ByLayer);
+        }
 
-        // Error message -> names of the tables it happened for. Insertion order is kept by the lists.
-        var joinerErrorTables = new Dictionary<string, List<string>>();
-        var buttonErrorTables = new Dictionary<string, List<string>>();
+        // Error message -> the steps it happened for. The order lists keep the messages in the order they were found.
+        var joinerErrorTallies = new Dictionary<string, ErrorTally>();
+        var buttonErrorTallies = new Dictionary<string, ErrorTally>();
         var joinerErrorOrder = new List<string>();
         var buttonErrorOrder = new List<string>();
 
-        foreach (TableEntry tableEntry in tablesToCheck)
+        foreach (WorkStep workStep in stepsToCheck)
         {
-            var templateRenderer = new TemplateRenderer(parsedSetup, tableEntry);
-            string tableDisplayName = tableEntry.Name.Length > 0 ? tableEntry.Name : $"line {tableEntry.LineNumber}";
+            var templateRenderer = new TemplateRenderer(parsedSetup, workStep);
+            string stepDisplayName = workStep.DisplayName;
 
             foreach (string joinerName in parsedSetup.Joiners.Keys)
             {
                 foreach (string errorMessage in templateRenderer.RenderJoiner(joinerName).Errors)
                 {
-                    RecordError($"{joinerName}: {errorMessage}", tableDisplayName, joinerErrorTables, joinerErrorOrder);
+                    RecordError($"{joinerName}: {errorMessage}", stepDisplayName, stepsToCheck.Count, joinerErrorTallies, joinerErrorOrder);
                 }
             }
 
-            foreach (ButtonTemplate buttonTemplate in parsedSetup.ButtonTemplates)
+            foreach (ButtonTemplate buttonTemplate in WorkPlanner.ButtonsFor(parsedSetup, workStep))
             {
                 IEnumerable<string> buttonErrors = templateRenderer.Render(buttonTemplate.Template).Errors;
                 if (buttonTemplate.Label is not null)
@@ -308,47 +470,62 @@ public static class SetupParser
                     buttonErrors = buttonErrors.Concat(templateRenderer.Render(buttonTemplate.Label).Errors);
                 }
 
+                // A button tagged for some layers is only checked in those, so "every step" means fewer steps for it.
+                int stepsWithThisButton = stepsToCheck.Count(stepToCheck => buttonTemplate.AppliesTo(stepToCheck.Layer));
+
                 foreach (string errorMessage in buttonErrors)
                 {
-                    RecordError($"Line {buttonTemplate.LineNumber}: {errorMessage}", tableDisplayName, buttonErrorTables, buttonErrorOrder);
+                    RecordError($"Line {buttonTemplate.LineNumber}: {errorMessage}", stepDisplayName, stepsWithThisButton, buttonErrorTallies, buttonErrorOrder);
                 }
             }
         }
 
-        int tableCount = tablesToCheck.Count;
-        parsedSetup.JoinerErrors.AddRange(joinerErrorOrder.Select(message => DescribeError(message, joinerErrorTables[message], tableCount, usingPlaceholderTable)));
-        parsedSetup.ButtonErrors.AddRange(buttonErrorOrder.Select(message => DescribeError(message, buttonErrorTables[message], tableCount, usingPlaceholderTable)));
+        parsedSetup.JoinerErrors.AddRange(joinerErrorOrder.Select(message => DescribeError(message, joinerErrorTallies[message], usingPlaceholderTable)));
+        parsedSetup.ButtonErrors.AddRange(buttonErrorOrder.Select(message => DescribeError(message, buttonErrorTallies[message], usingPlaceholderTable)));
     }
 
     /// <summary>
-    /// Remembers that an error happened for a table, without duplicating the message.
+    /// Which steps an error message happened for, out of how many steps the template was checked in.
     /// </summary>
-    private static void RecordError(string errorMessage, string tableName, Dictionary<string, List<string>> errorTables, List<string> errorOrder)
+    private sealed class ErrorTally
     {
-        if (!errorTables.TryGetValue(errorMessage, out List<string>? tableNames))
+        public List<string> StepNames { get; } = new();
+        public int CheckedStepCount { get; init; }
+    }
+
+    /// <summary>
+    /// Remembers that an error happened for a step, without duplicating the message.
+    /// </summary>
+    private static void RecordError(string errorMessage, string stepName, int checkedStepCount, Dictionary<string, ErrorTally> errorTallies, List<string> errorOrder)
+    {
+        if (!errorTallies.TryGetValue(errorMessage, out ErrorTally? errorTally))
         {
-            tableNames = new List<string>();
-            errorTables[errorMessage] = tableNames;
+            errorTally = new ErrorTally { CheckedStepCount = checkedStepCount };
+            errorTallies[errorMessage] = errorTally;
             errorOrder.Add(errorMessage);
         }
 
-        if (!tableNames.Contains(tableName))
+        if (!errorTally.StepNames.Contains(stepName))
         {
-            tableNames.Add(tableName);
+            errorTally.StepNames.Add(stepName);
         }
     }
 
     /// <summary>
-    /// Adds " (only for: A, B)" to an error that does not happen for every table.
+    /// Adds " (only for: A, B)" to an error that does not happen for every step. Long lists are cut short.
     /// </summary>
-    private static string DescribeError(string errorMessage, List<string> tableNames, int tableCount, bool usingPlaceholderTable)
+    private static string DescribeError(string errorMessage, ErrorTally errorTally, bool usingPlaceholderTable)
     {
-        if (usingPlaceholderTable || tableNames.Count >= tableCount)
+        if (usingPlaceholderTable || errorTally.StepNames.Count >= errorTally.CheckedStepCount)
         {
             return errorMessage;
         }
 
-        return $"{errorMessage} (only for: {string.Join(", ", tableNames)})";
+        const int maximumNamesShown = 5;
+        string shownNames = string.Join(", ", errorTally.StepNames.Take(maximumNamesShown));
+        int hiddenNameCount = errorTally.StepNames.Count - maximumNamesShown;
+        string moreText = hiddenNameCount > 0 ? $" and {hiddenNameCount} more" : string.Empty;
+        return $"{errorMessage} (only for: {shownNames}{moreText})";
     }
 
     /// <summary>
