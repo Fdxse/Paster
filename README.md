@@ -53,14 +53,16 @@ Mode, "Always on top" and the recent files list are remembered per computer (in 
 
 In Action mode a log panel at the bottom records every copy, re-enable and reset with time and table.
 The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next to the EXE (tab-separated).
-**Clear** empties the list in the window only; **Open log folder** shows the files.
+**Export...** saves the list to a tab-separated text file; **Clear** empties the list in the window only;
+**Open log folder** shows the files.
 
 ## Buttons
 
 - **Click**: copies the text and greys the button out.
 - **Ctrl+click** a greyed-out button: enables it again so you can copy it once more.
-- **Reset buttons**: enables every button for the selected table.
-- The table list shows `copied/total` per table.
+- **Hover** a button to see the full text it will copy.
+- **Reset table** enables every button for the selected table; **Reset all** does it for every table.
+- The table list shows `copied/total` per table, and the progress bar above the buttons shows the total over all tables.
 
 ## The four editors
 
@@ -72,6 +74,20 @@ Blank lines and lines starting with `//` are ignored everywhere.
 | Global variables | `name=value` | `schema=wrk` |
 | Joiners | `name=template` | `fulltable={prefix}_{table}{suffix}` |
 | Buttons | any text with `{tokens}` | `TRUNCATE TABLE [{schema}].[{fulltable}];` |
+
+### Multi-line buttons
+
+A button can copy a whole block. Start with `<<<` and a label, put the lines to copy under it, and end with `>>>`
+on a line of its own. The button shows the label (tokens allowed); hover to see the full text. Lines inside the
+block are copied exactly as typed.
+
+```
+<<< Reload {table}
+TRUNCATE TABLE [{schema}].[{fulltable}];
+INSERT INTO [{schema}].[{fulltable}]
+SELECT * FROM [stg].[{table}];
+>>>
+```
 
 ### Tokens
 

@@ -57,14 +57,32 @@ public sealed class ActionLog
         try
         {
             Directory.CreateDirectory(LogFolder);
-            string fileLine = $"{logEntry.Time:yyyy-MM-dd HH:mm:ss}\t{logEntry.Action}\t{logEntry.TableName}\t{logEntry.Text}{Environment.NewLine}";
-            File.AppendAllText(TodaysLogFilePath, fileLine);
+            File.AppendAllText(TodaysLogFilePath, ToFileLine(logEntry) + Environment.NewLine);
             return null;
         }
         catch (Exception writeException)
         {
             return writeException.Message;
         }
+    }
+
+    /// <summary>
+    /// Writes the entries shown in the window to a file, oldest first, in the same format as the daily log.
+    /// Throws if the file can't be written; the caller reports it.
+    /// </summary>
+    public void ExportDisplayedEntries(string filePath)
+    {
+        // The list is newest first, a file reads better oldest first.
+        IEnumerable<string> fileLines = Entries.Reverse().Select(ToFileLine);
+        File.WriteAllLines(filePath, new[] { "Time\tAction\tTable\tText" }.Concat(fileLines));
+    }
+
+    /// <summary>
+    /// One tab-separated line: time, action, table, text.
+    /// </summary>
+    private static string ToFileLine(ActionLogEntry logEntry)
+    {
+        return $"{logEntry.Time:yyyy-MM-dd HH:mm:ss}\t{logEntry.Action}\t{logEntry.TableName}\t{logEntry.Text}";
     }
 
     /// <summary>

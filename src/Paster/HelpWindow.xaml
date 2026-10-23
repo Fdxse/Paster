@@ -58,6 +58,14 @@
             <Paragraph Style="{StaticResource CodeExample}">
                 Begin work on {table}<LineBreak />TRUNCATE TABLE [{schema}].[{fulltable}];
             </Paragraph>
+            <Paragraph>
+                For a button that copies several lines (a whole SQL block), start with a line holding &lt;&lt;&lt; and a label,
+                put the lines to copy under it, and end with a line holding only &gt;&gt;&gt;. The button shows the label;
+                hover over it to see the full text. Lines inside a block are copied exactly as typed, indentation included.
+            </Paragraph>
+            <Paragraph Style="{StaticResource CodeExample}">
+                &lt;&lt;&lt; Reload {table}<LineBreak />TRUNCATE TABLE [{schema}].[{fulltable}];<LineBreak />INSERT INTO [{schema}].[{fulltable}]<LineBreak />SELECT * FROM [stg].[{table}];<LineBreak />&gt;&gt;&gt;
+            </Paragraph>
 
             <Paragraph Style="{StaticResource SectionHeading}">5. Tokens and transforms</Paragraph>
             <List MarkerStyle="Disc">
@@ -87,14 +95,16 @@
             <List MarkerStyle="Disc">
                 <ListItem><Paragraph><Bold>Click</Bold> copies the text and greys the button out.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Ctrl+click</Bold> a greyed-out button to make it clickable again.</Paragraph></ListItem>
-                <ListItem><Paragraph><Bold>Reset buttons</Bold> makes every button for the selected table clickable again.</Paragraph></ListItem>
-                <ListItem><Paragraph>The table list shows how many buttons you have copied, e.g. 2/5.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Hover</Bold> over a button to see the full text it will copy.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Reset table</Bold> makes every button for the selected table clickable again; <Bold>Reset all</Bold> does it for every table.</Paragraph></ListItem>
+                <ListItem><Paragraph>The table list shows how many buttons you have copied per table, e.g. 2/5. The progress bar above the buttons shows the total over all tables.</Paragraph></ListItem>
             </List>
 
             <Paragraph Style="{StaticResource SectionHeading}">9. Action log</Paragraph>
             <Paragraph>
                 In Action mode every copy, re-enable and reset is listed at the bottom with time and table, and written to
-                logs\paster-YYYY-MM-DD.log next to Paster.exe. Clear only empties the list on screen.
+                logs\paster-YYYY-MM-DD.log next to Paster.exe. Export... saves the list to a tab-separated text file
+                (opens in Excel). Clear only empties the list on screen.
             </Paragraph>
 
             <Paragraph Style="{StaticResource SectionHeading}">10. Files</Paragraph>

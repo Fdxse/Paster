@@ -96,7 +96,11 @@ public sealed class SetupFile
             Tables = new List<string> { "// One table per line. Override variables for a single line after a ';'." },
             Variables = new List<string> { "// Global variables: name=value. {table} is built in." },
             Joiners = new List<string> { "// Joiners build new variables from other variables (and other joiners)." },
-            Buttons = new List<string> { "// One button per line. Transforms: upper, lower, pascal, camel, snake, kebab, title, trim." },
+            Buttons = new List<string>
+            {
+                "// One button per line. Transforms: upper, lower, pascal, camel, snake, kebab, title, trim.",
+                "// Multi-line button: a line with <<< and a label, the lines to copy, then a line with >>>.",
+            },
         };
     }
 
@@ -136,6 +140,12 @@ public sealed class SetupFile
                 "SELECT TOP 100 * FROM {fullname};",
                 "Import {table:upper} with SSIS",
                 "{table:snake}",
+                "// A multi-line button: <<< label, the lines to copy, then >>>.",
+                "<<< Reload {table}",
+                "TRUNCATE TABLE [{schema}].[{fulltable}];",
+                "INSERT INTO [{schema}].[{fulltable}]",
+                "SELECT * FROM [stg].[{table}];",
+                ">>>",
             },
         };
     }

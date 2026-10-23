@@ -183,14 +183,89 @@ public static class SetupParser
         }
     }
 
+    /// <summary>Starts a multi-line button. Text after it on the same line is the button's label.</summary>
+    public const string BlockStartMarker = "<<<";
+
+    /// <summary>Ends a multi-line button.</summary>
+    public const string BlockEndMarker = ">>>";
+
     /// <summary>
-    /// Every non-blank, non-comment line is one button. The text is kept as typed (only trimmed).
+    /// Every non-blank, non-comment line is one button (trimmed).
+    /// A multi-line button is written as a block, and every line inside it is kept exactly as typed:
+    ///   &lt;&lt;&lt; Truncate and load {table}
+    ///   TRUNCATE TABLE [{schema}].[{fulltable}];
+    ///   INSERT INTO [{schema}].[{fulltable}] SELECT * FROM stg.{table};
+    ///   &gt;&gt;&gt;
     /// </summary>
     private static void ParseButtons(string buttonsText, ParsedSetup parsedSetup)
     {
-        foreach ((int lineNumber, string line) in MeaningfulLines(buttonsText))
+        string[] allLines = (buttonsText ?? string.Empty).Replace("\r\n", "\n").Split('\n');
+        int lineIndex = 0;
+
+        while (lineIndex < allLines.Length)
         {
-            parsedSetup.ButtonTemplates.Add(new ButtonTemplate { LineNumber = lineNumber, Template = line });
+            string trimmedLine = allLines[lineIndex].Trim();
+            int lineNumber = lineIndex + 1;
+            lineIndex++;
+
+            if (trimmedLine.Length == 0 || trimmedLine.StartsWith("//", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!trimmedLine.StartsWith(BlockStartMarker, StringComparison.Ordinal))
+            {
+                parsedSetup.ButtonTemplates.Add(new ButtonTemplate { LineNumber = lineNumber, Template = trimmedLine });
+                continue;
+            }
+
+            // A block: collect lines until ">>>" (or the end of the editor).
+            string labelText = trimmedLine[BlockStartMarker.Length..].Trim();
+            var blockLines = new List<string>();
+            bool blockClosed = false;
+
+            while (lineIndex < allLines.Length)
+            {
+                string blockLine = allLines[lineIndex];
+                lineIndex++;
+
+                if (blockLine.Trim() == BlockEndMarker)
+                {
+                    blockClosed = true;
+                    break;
+                }
+
+                blockLines.Add(blockLine.TrimEnd());
+            }
+
+            if (!blockClosed)
+            {
+                parsedSetup.ButtonErrors.Add($"Line {lineNumber}: the {BlockStartMarker} block is never closed with {BlockEndMarker} on a line of its own.");
+            }
+
+            // Blank lines at the start and end of a block are not part of the text.
+            while (blockLines.Count > 0 && blockLines[0].Trim().Length == 0)
+            {
+                blockLines.RemoveAt(0);
+            }
+
+            while (blockLines.Count > 0 && blockLines[^1].Trim().Length == 0)
+            {
+                blockLines.RemoveAt(blockLines.Count - 1);
+            }
+
+            if (blockLines.Count == 0)
+            {
+                parsedSetup.ButtonErrors.Add($"Line {lineNumber}: the {BlockStartMarker} block is empty.");
+                continue;
+            }
+
+            parsedSetup.ButtonTemplates.Add(new ButtonTemplate
+            {
+                LineNumber = lineNumber,
+                Template = string.Join(Environment.NewLine, blockLines),
+                Label = labelText.Length > 0 ? labelText : null,
+            });
         }
     }
 
@@ -227,7 +302,13 @@ public static class SetupParser
 
             foreach (ButtonTemplate buttonTemplate in parsedSetup.ButtonTemplates)
             {
-                foreach (string errorMessage in templateRenderer.Render(buttonTemplate.Template).Errors)
+                IEnumerable<string> buttonErrors = templateRenderer.Render(buttonTemplate.Template).Errors;
+                if (buttonTemplate.Label is not null)
+                {
+                    buttonErrors = buttonErrors.Concat(templateRenderer.Render(buttonTemplate.Label).Errors);
+                }
+
+                foreach (string errorMessage in buttonErrors)
                 {
                     RecordError($"Line {buttonTemplate.LineNumber}: {errorMessage}", tableDisplayName, buttonErrorTables, buttonErrorOrder);
                 }
