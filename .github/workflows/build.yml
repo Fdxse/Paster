@@ -1,0 +1,57 @@
+# Builds Paster as a single self-contained EXE and zips it.
+#  - Pull requests: build only, so a broken PR shows up red before it is merged.
+#  - Push to main (i.e. a merged PR): build, zip, upload the zip as a workflow artifact
+#    and publish it as a GitHub release so it is easy to download.
+name: Build and zip
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create the release on main
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish single-file EXE
+        run: dotnet publish src/Paster/Paster.csproj -c Release -o publish
+
+      - name: Zip the EXE
+        shell: pwsh
+        run: |
+          # Name the zip after the build number so every release is unique.
+          $zipFileName = "Paster-build-${{ github.run_number }}.zip"
+          Compress-Archive -Path publish/Paster.exe -DestinationPath $zipFileName
+          "ZIP_FILE_NAME=$zipFileName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload zip as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Paster-build-${{ github.run_number }}
+          path: ${{ env.ZIP_FILE_NAME }}
+
+      - name: Publish GitHub release (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $releaseTag = "build-${{ github.run_number }}"
+          gh release create $releaseTag $env:ZIP_FILE_NAME `
+            --title "Paster build ${{ github.run_number }}" `
+            --notes "Automatic build of ${{ github.sha }}. Unzip and run Paster.exe; config.json is created next to it on first start." `
+            --target ${{ github.sha }}

@@ -1,0 +1,10 @@
+<Application x:Class="Paster.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <!-- Light red used for "soft errors" on fields, list rows and buttons. -->
+        <SolidColorBrush x:Key="SoftErrorBrush" Color="#FFFFE0E0" />
+        <SolidColorBrush x:Key="SoftErrorTextBrush" Color="#FFB00020" />
+    </Application.Resources>
+</Application>
