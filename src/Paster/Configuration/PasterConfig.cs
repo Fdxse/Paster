@@ -18,6 +18,12 @@ public sealed class PasterConfig
     /// <summary>True if the window should stay above all other windows.</summary>
     public bool AlwaysOnTop { get; set; }
 
+    /// <summary>
+    /// The setup file last opened or saved (see <see cref="SetupFile"/>), so "Save" knows where to write.
+    /// Null when the current setup has never been saved to a file.
+    /// </summary>
+    public string? CurrentSetupFile { get; set; }
+
     /// <summary>Table lines, e.g. "DBTable" or "DBTable; schema=stg; prefix=Fact".</summary>
     public List<string> Tables { get; set; } = new();
 

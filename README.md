@@ -22,6 +22,21 @@ The app starts in the mode it was closed in.
 
 Tick **Always on top** in the top bar to keep Paster above other windows. This is remembered too.
 
+## Setup files
+
+The editors are always kept in `config.json`, so nothing is lost when you close Paster.
+To keep several setups (SSIS, dbt, ...), save them as separate JSON files:
+
+- **Open...** (Ctrl+O) loads a setup file into the editors.
+- **Save** (Ctrl+S) writes to the current setup file; **Save as...** (Ctrl+Shift+S) picks a new one.
+- The dialogs start in a `setups` folder next to the EXE. The title bar shows the current file, with `*` for unsaved changes.
+
+## Action log
+
+In Action mode a log panel at the bottom records every copy, re-enable and reset with time and table.
+The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next to the EXE (tab-separated).
+**Clear** empties the list in the window only; **Open log folder** shows the files.
+
 ## Buttons
 
 - **Click**: copies the text and greys the button out.

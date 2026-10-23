@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Paster.Configuration;
 using Paster.Engine;
 
@@ -39,12 +40,23 @@ public partial class MainWindow : Window
     /// <summary>Width of the setup panel before it was hidden, so it comes back at the same size.</summary>
     private GridLength setupColumnWidthBeforeHide = new(420);
 
+    /// <summary>Records what is done in Action mode (window list + daily log file).</summary>
+    private readonly ActionLog actionLog = new();
+
+    /// <summary>The setup file that "Save" writes to, or null if the setup has not been saved to a file yet.</summary>
+    private string? currentSetupFilePath;
+
+    /// <summary>True when the editors changed since the setup file was last opened or saved.</summary>
+    private bool hasUnsavedSetupChanges;
+
     public MainWindow()
     {
         InitializeComponent();
 
         saveTimer = new DispatcherTimer { Interval = SaveDelay };
         saveTimer.Tick += SaveTimer_Tick;
+
+        ActionLogListBox.ItemsSource = actionLog.Entries;
 
         LoadConfigIntoEditors();
         RefreshEverything();
@@ -112,11 +124,16 @@ public partial class MainWindow : Window
             // Restore "Always on top" from the last session.
             AlwaysOnTopCheckBox.IsChecked = loadedConfig.AlwaysOnTop;
             Topmost = loadedConfig.AlwaysOnTop;
+
+            // Remember which setup file "Save" writes to.
+            currentSetupFilePath = loadedConfig.CurrentSetupFile;
         }
         finally
         {
             isLoadingConfig = false;
         }
+
+        UpdateTitle();
     }
 
     /// <summary>
@@ -134,6 +151,7 @@ public partial class MainWindow : Window
             Buttons = SplitEditorLines(ButtonsTextBox.Text),
             Mode = ActionModeRadioButton.IsChecked == true ? PasterConfig.ActionModeName : PasterConfig.SetupModeName,
             AlwaysOnTop = AlwaysOnTopCheckBox.IsChecked == true,
+            CurrentSetupFile = currentSetupFilePath,
         };
 
         try
@@ -190,6 +208,12 @@ public partial class MainWindow : Window
         }
 
         RefreshEverything();
+
+        if (!hasUnsavedSetupChanges)
+        {
+            hasUnsavedSetupChanges = true;
+            UpdateTitle();
+        }
 
         // Restart the timer so we save once the user pauses typing.
         saveTimer.Stop();
@@ -362,6 +386,7 @@ public partial class MainWindow : Window
                 usedTexts.Remove(buttonItem.RenderedText);
                 UpdateSelectedTableProgress(selectedTable);
                 ShowStatus("Button enabled again.");
+                RecordAction("Re-enabled", selectedTable.Name, buttonItem.RenderedText);
             }
             else
             {
@@ -381,6 +406,7 @@ public partial class MainWindow : Window
         usedTexts.Add(buttonItem.RenderedText);
         UpdateSelectedTableProgress(selectedTable);
         ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
+        RecordAction("Copied", selectedTable.Name, buttonItem.RenderedText);
     }
 
     /// <summary>
@@ -398,6 +424,7 @@ public partial class MainWindow : Window
         RebuildButtons();
         UpdateSelectedTableProgress(selectedTable);
         ShowStatus($"All buttons for {selectedTable.Name} are enabled again.");
+        RecordAction("Reset", selectedTable.Name, string.Empty);
     }
 
     /// <summary>
@@ -536,7 +563,7 @@ public partial class MainWindow : Window
             SetupSplitterColumn.Width = new GridLength(0);
             SetupPanel.Visibility = Visibility.Collapsed;
             SetupGridSplitter.Visibility = Visibility.Collapsed;
-            Title = "Paster - Action";
+            ActionLogPanel.Visibility = Visibility.Visible;
         }
         else
         {
@@ -545,8 +572,289 @@ public partial class MainWindow : Window
             SetupSplitterColumn.Width = new GridLength(6);
             SetupPanel.Visibility = Visibility.Visible;
             SetupGridSplitter.Visibility = Visibility.Visible;
-            Title = "Paster - Setup";
+            ActionLogPanel.Visibility = Visibility.Collapsed;
         }
+
+        UpdateTitle();
+    }
+
+    /// <summary>
+    /// "Paster - Action - dbt.json *": mode, setup file name, and * when there are unsaved changes.
+    /// </summary>
+    private void UpdateTitle()
+    {
+        string modeName = ActionModeRadioButton?.IsChecked == true ? "Action" : "Setup";
+        string setupFileName = currentSetupFilePath is null ? "unsaved setup" : Path.GetFileName(currentSetupFilePath);
+        string unsavedMarker = hasUnsavedSetupChanges ? " *" : string.Empty;
+        Title = $"Paster - {modeName} - {setupFileName}{unsavedMarker}";
+    }
+
+    // ------------------------------------------------------------------
+    // Action log
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Adds an entry to the action log. Only done in Action mode, since Setup mode is for trying things out.
+    /// </summary>
+    private void RecordAction(string action, string tableName, string text)
+    {
+        if (ActionModeRadioButton.IsChecked != true)
+        {
+            return;
+        }
+
+        string? logFileError = actionLog.Record(action, tableName, text);
+        if (logFileError is not null)
+        {
+            ShowStatus($"Could not write the log file: {logFileError}", isError: true);
+        }
+    }
+
+    private void ClearLogButton_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        actionLog.ClearDisplayedEntries();
+        ShowStatus("Log list cleared. The log files are kept in the logs folder.");
+    }
+
+    /// <summary>
+    /// Opens the logs folder in Explorer so older days can be looked at.
+    /// </summary>
+    private void OpenLogFolderButton_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        try
+        {
+            Directory.CreateDirectory(ActionLog.LogFolder);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ActionLog.LogFolder,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception openException)
+        {
+            ShowStatus($"Could not open the logs folder: {openException.Message}", isError: true);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Setup files (Open / Save / Save as)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Ctrl+O = Open, Ctrl+S = Save, Ctrl+Shift+S = Save as.
+    /// </summary>
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs keyEventArgs)
+    {
+        bool isControlHeld = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        bool isShiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+        if (!isControlHeld)
+        {
+            return;
+        }
+
+        if (keyEventArgs.Key == Key.O)
+        {
+            OpenSetupFile();
+            keyEventArgs.Handled = true;
+        }
+        else if (keyEventArgs.Key == Key.S)
+        {
+            if (isShiftHeld)
+            {
+                SaveSetupFileAs();
+            }
+            else
+            {
+                SaveSetupFile();
+            }
+
+            keyEventArgs.Handled = true;
+        }
+    }
+
+    private void OpenSetupButton_Click(object sender, RoutedEventArgs eventArgs) => OpenSetupFile();
+
+    private void SaveSetupButton_Click(object sender, RoutedEventArgs eventArgs) => SaveSetupFile();
+
+    private void SaveSetupAsButton_Click(object sender, RoutedEventArgs eventArgs) => SaveSetupFileAs();
+
+    /// <summary>
+    /// Asks for a setup file and loads it into the editors. Offers to save unsaved changes first.
+    /// </summary>
+    private void OpenSetupFile()
+    {
+        if (!ConfirmDiscardUnsavedChanges())
+        {
+            return;
+        }
+
+        var openFileDialog = new OpenFileDialog
+        {
+            Title = "Open setup",
+            Filter = "Paster setup (*.json)|*.json|All files (*.*)|*.*",
+            InitialDirectory = GetDialogFolder(),
+        };
+
+        if (openFileDialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        SetupFile loadedSetup;
+        try
+        {
+            loadedSetup = SetupFile.Load(openFileDialog.FileName);
+        }
+        catch (Exception loadException)
+        {
+            MessageBox.Show(this, $"Could not open the setup:\n\n{loadException.Message}", "Paster",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        isLoadingConfig = true;
+        try
+        {
+            TablesTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Tables);
+            VariablesTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Variables);
+            JoinersTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Joiners);
+            ButtonsTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Buttons);
+        }
+        finally
+        {
+            isLoadingConfig = false;
+        }
+
+        // A new setup starts with every button clickable.
+        usedTextsByTable.Clear();
+        currentSetupFilePath = openFileDialog.FileName;
+        hasUnsavedSetupChanges = false;
+
+        RefreshEverything();
+        TableListBox.SelectedIndex = TableListBox.Items.Count > 0 ? 0 : -1;
+        UpdateTitle();
+
+        // Remember the opened setup as the working copy in config.json too.
+        SaveConfigNow();
+        ShowStatus($"Opened {currentSetupFilePath}");
+    }
+
+    /// <summary>
+    /// Saves to the current setup file, or asks for a file name if there is none yet.
+    /// Returns true if the setup was saved.
+    /// </summary>
+    private bool SaveSetupFile()
+    {
+        if (currentSetupFilePath is null)
+        {
+            return SaveSetupFileAs();
+        }
+
+        return WriteSetupFile(currentSetupFilePath);
+    }
+
+    /// <summary>
+    /// Asks for a file name and saves the setup there. Returns true if the setup was saved.
+    /// </summary>
+    private bool SaveSetupFileAs()
+    {
+        var saveFileDialog = new SaveFileDialog
+        {
+            Title = "Save setup as",
+            Filter = "Paster setup (*.json)|*.json",
+            DefaultExt = ".json",
+            AddExtension = true,
+            InitialDirectory = GetDialogFolder(),
+            FileName = currentSetupFilePath is null ? "setup.json" : Path.GetFileName(currentSetupFilePath),
+        };
+
+        if (saveFileDialog.ShowDialog(this) != true)
+        {
+            return false;
+        }
+
+        return WriteSetupFile(saveFileDialog.FileName);
+    }
+
+    /// <summary>
+    /// Writes the four editors to a setup file and makes it the current one.
+    /// </summary>
+    private bool WriteSetupFile(string filePath)
+    {
+        var setupToSave = new SetupFile
+        {
+            Tables = SplitEditorLines(TablesTextBox.Text),
+            Variables = SplitEditorLines(VariablesTextBox.Text),
+            Joiners = SplitEditorLines(JoinersTextBox.Text),
+            Buttons = SplitEditorLines(ButtonsTextBox.Text),
+        };
+
+        try
+        {
+            setupToSave.Save(filePath);
+        }
+        catch (Exception saveException)
+        {
+            ShowStatus($"Could not save the setup: {saveException.Message}", isError: true);
+            return false;
+        }
+
+        currentSetupFilePath = filePath;
+        hasUnsavedSetupChanges = false;
+        UpdateTitle();
+        SaveConfigNow();
+        ShowStatus($"Saved setup to {filePath}");
+        return true;
+    }
+
+    /// <summary>
+    /// If there are unsaved changes, asks whether to save them. Returns false if the user cancels.
+    /// (The editors are always kept in config.json, so "No" only skips writing the setup file.)
+    /// </summary>
+    private bool ConfirmDiscardUnsavedChanges()
+    {
+        if (!hasUnsavedSetupChanges)
+        {
+            return true;
+        }
+
+        string setupName = currentSetupFilePath is null ? "the current setup" : Path.GetFileName(currentSetupFilePath);
+        MessageBoxResult answer = MessageBox.Show(
+            this,
+            $"Save changes to {setupName} first?",
+            "Paster",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+
+        return answer switch
+        {
+            MessageBoxResult.Yes => SaveSetupFile(),
+            MessageBoxResult.No => true,
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// Folder the file dialogs start in: the current setup's folder, otherwise the "setups" folder next to the EXE.
+    /// </summary>
+    private string GetDialogFolder()
+    {
+        string? currentFolder = currentSetupFilePath is null ? null : Path.GetDirectoryName(currentSetupFilePath);
+        if (currentFolder is not null && Directory.Exists(currentFolder))
+        {
+            return currentFolder;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(SetupFile.DefaultFolder);
+        }
+        catch (Exception)
+        {
+            // Not fatal: the dialog just starts somewhere else.
+        }
+
+        return SetupFile.DefaultFolder;
     }
 
     /// <summary>

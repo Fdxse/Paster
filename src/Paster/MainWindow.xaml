@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Paster" Height="680" Width="1200" MinHeight="400" MinWidth="700"
         WindowStartupLocation="CenterScreen"
-        Closing="Window_Closing">
+        Closing="Window_Closing"
+        PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
         <!-- Shared look for the four setup editors: monospace, multi-line, no wrapping. -->
@@ -107,9 +108,40 @@
                 <Button x:Name="ResetUsedButton" DockPanel.Dock="Right" Content="Reset buttons" Padding="12,3" Margin="0,0,8,0"
                         Click="ResetUsedButton_Click"
                         ToolTip="Make every button for the selected table clickable again" />
+                <!-- Setup files: keep different setups as separate JSON files. -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,12,0">
+                    <Button Content="Open..." Padding="10,3" Margin="0,0,4,0" Click="OpenSetupButton_Click"
+                            ToolTip="Open a saved setup (Ctrl+O)" />
+                    <Button Content="Save" Padding="10,3" Margin="0,0,4,0" Click="SaveSetupButton_Click"
+                            ToolTip="Save the setup to its file (Ctrl+S)" />
+                    <Button Content="Save as..." Padding="10,3" Click="SaveSetupAsButton_Click"
+                            ToolTip="Save the setup to a new file (Ctrl+Shift+S)" />
+                </StackPanel>
                 <TextBlock x:Name="StatusTextBlock" VerticalAlignment="Center" Foreground="#FF505050"
                            TextTrimming="CharacterEllipsis"
                            Text="Click a button to copy. Ctrl+click a greyed-out button to enable it again." />
+            </DockPanel>
+        </Border>
+
+        <!-- Bottom: action log, only shown in Action mode. -->
+        <Border x:Name="ActionLogPanel" DockPanel.Dock="Bottom" Height="160" Visibility="Collapsed"
+                BorderBrush="#FFD0D0D0" BorderThickness="0,1,0,0" Padding="8,6">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <Button DockPanel.Dock="Right" Content="Open log folder" Padding="10,2" Click="OpenLogFolderButton_Click"
+                            ToolTip="Show the daily log files in Explorer" />
+                    <Button DockPanel.Dock="Right" Content="Clear" Padding="10,2" Margin="0,0,6,0" Click="ClearLogButton_Click"
+                            ToolTip="Clear this list (the log files are kept)" />
+                    <TextBlock Text="Action log" Style="{StaticResource HeaderTextStyle}" VerticalAlignment="Center" />
+                </DockPanel>
+                <ListBox x:Name="ActionLogListBox" FontFamily="Consolas" FontSize="12"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding DisplayText}" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </DockPanel>
         </Border>
 
