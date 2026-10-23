@@ -21,6 +21,19 @@
             <Setter Property="Padding" Value="2" />
         </Style>
 
+        <!-- Turns a Help toggle button's IsChecked into Visible / Collapsed. -->
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibility" />
+
+        <!-- The help box above an editor. -->
+        <Style x:Key="EditorHelpBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="#FFF4F6FA" />
+            <Setter Property="BorderBrush" Value="#FFB8C2D6" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+
         <!-- Section headers. -->
         <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
             <Setter Property="FontWeight" Value="SemiBold" />
@@ -32,7 +45,7 @@
             <Setter Property="Foreground" Value="{StaticResource SoftErrorTextBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Margin" Value="0,2,0,0" />
-            <Setter Property="MaxHeight" Value="60" />
+            <Setter Property="MaxHeight" Value="120" />
             <Setter Property="Visibility" Value="Collapsed" />
         </Style>
 
@@ -277,46 +290,152 @@
 
             <GridSplitter x:Name="SetupGridSplitter" Grid.Column="3" Width="6" HorizontalAlignment="Stretch" Background="Transparent" />
 
-            <!-- Right: setup editors. Every keystroke updates the buttons immediately. -->
-            <Grid x:Name="SetupPanel" Grid.Column="4">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="0.6*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <TextBlock Grid.Row="0" Text="Table list   (Name; var=value; layers=a,b)" Style="{StaticResource HeaderTextStyle}" />
-                <TextBox Grid.Row="1" x:Name="TablesTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="2" x:Name="TablesErrorText" Style="{StaticResource ErrorTextStyle}" />
-
-                <TextBlock Grid.Row="3" Text="Layers   (name; var=value; ...)   optional" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
-                <TextBox Grid.Row="4" x:Name="LayersTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="5" x:Name="LayersErrorText" Style="{StaticResource ErrorTextStyle}" />
-
-                <TextBlock Grid.Row="6" Text="Global variables   (name=value)" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
-                <TextBox Grid.Row="7" x:Name="VariablesTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="8" x:Name="VariablesErrorText" Style="{StaticResource ErrorTextStyle}" />
-
-                <TextBlock Grid.Row="9" Text="Joiners   (name=template with {variables})" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
-                <TextBox Grid.Row="10" x:Name="JoinersTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="11" x:Name="JoinersErrorText" Style="{StaticResource ErrorTextStyle}" />
-
-                <TextBlock Grid.Row="12" Text="Buttons   (one template per line, @layer to limit)" Style="{StaticResource HeaderTextStyle}" Margin="0,8,0,4" />
-                <TextBox Grid.Row="13" x:Name="ButtonsTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
-                <TextBlock Grid.Row="14" x:Name="ButtonsErrorText" Style="{StaticResource ErrorTextStyle}" />
-            </Grid>
+            <!-- Right: setup editors, one tab each. Every keystroke updates the buttons immediately. -->
+            <TabControl x:Name="SetupPanel" Grid.Column="4">
+                <TabItem x:Name="TablesTab" Header="Tables">
+                    <DockPanel Margin="0,6,0,0">
+                        <!-- Format hint, Help and Insert example. -->
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                            <ToggleButton x:Name="TablesHelpToggle" DockPanel.Dock="Right" Content="Help" Padding="10,2"
+                                          ToolTip="Show what you can write in this box" />
+                            <Button x:Name="TablesExampleButton" DockPanel.Dock="Right" Content="Insert example" Padding="10,2" Margin="0,0,6,0"
+                                    Click="InsertExampleButton_Click"
+                                    ToolTip="Fill this box with example lines (only while it has nothing but comments)" />
+                            <TextBlock Text="Name; var=value; layers=a,b" VerticalAlignment="Center" Foreground="#FF606060"
+                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <!-- Help text, shown while the Help button is pressed in. -->
+                        <Border DockPanel.Dock="Top" Style="{StaticResource EditorHelpBorderStyle}"
+                                Visibility="{Binding IsChecked, ElementName=TablesHelpToggle, Converter={StaticResource BooleanToVisibility}}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Bold>One table per line.</Bold> The name is available in templates as {table}.
+                                <LineBreak /><LineBreak />
+                                After a <Run FontFamily="Consolas">;</Run> you can set variables for this line only. They win over everything else:<LineBreak /><Run FontFamily="Consolas">Customer; schema=stg; prefix=Fact</Run>
+                                <LineBreak /><LineBreak />
+                                With layers, <Run FontFamily="Consolas">layers=stg,wrk</Run> limits the table to those layers.
+                                <LineBreak /><LineBreak />
+                                Lines starting with // are comments.
+                            </TextBlock>
+                        </Border>
+                        <TextBlock x:Name="TablesErrorText" DockPanel.Dock="Bottom" Style="{StaticResource ErrorTextStyle}" />
+                        <TextBox x:Name="TablesTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                    </DockPanel>
+                </TabItem>
+                <TabItem x:Name="LayersTab" Header="Layers">
+                    <DockPanel Margin="0,6,0,0">
+                        <!-- Format hint, Help and Insert example. -->
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                            <ToggleButton x:Name="LayersHelpToggle" DockPanel.Dock="Right" Content="Help" Padding="10,2"
+                                          ToolTip="Show what you can write in this box" />
+                            <Button x:Name="LayersExampleButton" DockPanel.Dock="Right" Content="Insert example" Padding="10,2" Margin="0,0,6,0"
+                                    Click="InsertExampleButton_Click"
+                                    ToolTip="Fill this box with example lines (only while it has nothing but comments)" />
+                            <TextBlock Text="name; var=value   (optional)" VerticalAlignment="Center" Foreground="#FF606060"
+                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <!-- Help text, shown while the Help button is pressed in. -->
+                        <Border DockPanel.Dock="Top" Style="{StaticResource EditorHelpBorderStyle}"
+                                Visibility="{Binding IsChecked, ElementName=LayersHelpToggle, Converter={StaticResource BooleanToVisibility}}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Bold>Optional.</Bold> List the layers every table goes through, in order (stg, wrk, dwh...). Leave the box empty to work with plain tables.
+                                <LineBreak /><LineBreak />
+                                Each table then becomes one step per layer, like "DBTable · wrk". The layer name is available as {layer}.
+                                <LineBreak /><LineBreak />
+                                Variables after a <Run FontFamily="Consolas">;</Run> apply in that layer only:<LineBreak /><Run FontFamily="Consolas">dwh; schema=dwh; prefix=Dim_</Run>
+                                <LineBreak /><LineBreak />
+                                Order in the top bar walks the steps By layer or By table.
+                            </TextBlock>
+                        </Border>
+                        <TextBlock x:Name="LayersErrorText" DockPanel.Dock="Bottom" Style="{StaticResource ErrorTextStyle}" />
+                        <TextBox x:Name="LayersTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                    </DockPanel>
+                </TabItem>
+                <TabItem x:Name="VariablesTab" Header="Variables">
+                    <DockPanel Margin="0,6,0,0">
+                        <!-- Format hint, Help and Insert example. -->
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                            <ToggleButton x:Name="VariablesHelpToggle" DockPanel.Dock="Right" Content="Help" Padding="10,2"
+                                          ToolTip="Show what you can write in this box" />
+                            <Button x:Name="VariablesExampleButton" DockPanel.Dock="Right" Content="Insert example" Padding="10,2" Margin="0,0,6,0"
+                                    Click="InsertExampleButton_Click"
+                                    ToolTip="Fill this box with example lines (only while it has nothing but comments)" />
+                            <TextBlock Text="name=value" VerticalAlignment="Center" Foreground="#FF606060"
+                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <!-- Help text, shown while the Help button is pressed in. -->
+                        <Border DockPanel.Dock="Top" Style="{StaticResource EditorHelpBorderStyle}"
+                                Visibility="{Binding IsChecked, ElementName=VariablesHelpToggle, Converter={StaticResource BooleanToVisibility}}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Bold>One name=value per line.</Bold> Used for every table, unless a table line or a layer sets its own value.
+                                <LineBreak /><LineBreak />
+                                <Run FontFamily="Consolas">schema=wrk</Run><LineBreak /><Run FontFamily="Consolas">prefix=</Run>   (an empty value is fine)
+                                <LineBreak /><LineBreak />
+                                Names start with a letter or _, then letters, digits or _. {table} and {layer} are built in.
+                            </TextBlock>
+                        </Border>
+                        <TextBlock x:Name="VariablesErrorText" DockPanel.Dock="Bottom" Style="{StaticResource ErrorTextStyle}" />
+                        <TextBox x:Name="VariablesTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                    </DockPanel>
+                </TabItem>
+                <TabItem x:Name="JoinersTab" Header="Joiners">
+                    <DockPanel Margin="0,6,0,0">
+                        <!-- Format hint, Help and Insert example. -->
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                            <ToggleButton x:Name="JoinersHelpToggle" DockPanel.Dock="Right" Content="Help" Padding="10,2"
+                                          ToolTip="Show what you can write in this box" />
+                            <Button x:Name="JoinersExampleButton" DockPanel.Dock="Right" Content="Insert example" Padding="10,2" Margin="0,0,6,0"
+                                    Click="InsertExampleButton_Click"
+                                    ToolTip="Fill this box with example lines (only while it has nothing but comments)" />
+                            <TextBlock Text="name=template with {variables}" VerticalAlignment="Center" Foreground="#FF606060"
+                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <!-- Help text, shown while the Help button is pressed in. -->
+                        <Border DockPanel.Dock="Top" Style="{StaticResource EditorHelpBorderStyle}"
+                                Visibility="{Binding IsChecked, ElementName=JoinersHelpToggle, Converter={StaticResource BooleanToVisibility}}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Bold>New variables built from other variables</Bold>, one name=template per line:
+                                <LineBreak /><LineBreak />
+                                <Run FontFamily="Consolas">fulltable={prefix}{table}{suffix}</Run><LineBreak /><Run FontFamily="Consolas">fullname=[{database}].[{schema}].[{fulltable}]</Run>
+                                <LineBreak /><LineBreak />
+                                A joiner can use other joiners. If two joiners use each other in a loop, the box turns red.
+                            </TextBlock>
+                        </Border>
+                        <TextBlock x:Name="JoinersErrorText" DockPanel.Dock="Bottom" Style="{StaticResource ErrorTextStyle}" />
+                        <TextBox x:Name="JoinersTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                    </DockPanel>
+                </TabItem>
+                <TabItem x:Name="ButtonsTab" Header="Buttons">
+                    <DockPanel Margin="0,6,0,0">
+                        <!-- Format hint, Help and Insert example. -->
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                            <ToggleButton x:Name="ButtonsHelpToggle" DockPanel.Dock="Right" Content="Help" Padding="10,2"
+                                          ToolTip="Show what you can write in this box" />
+                            <Button x:Name="ButtonsExampleButton" DockPanel.Dock="Right" Content="Insert example" Padding="10,2" Margin="0,0,6,0"
+                                    Click="InsertExampleButton_Click"
+                                    ToolTip="Fill this box with example lines (only while it has nothing but comments)" />
+                            <TextBlock Text="one template per line, @layer to limit" VerticalAlignment="Center" Foreground="#FF606060"
+                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <!-- Help text, shown while the Help button is pressed in. -->
+                        <Border DockPanel.Dock="Top" Style="{StaticResource EditorHelpBorderStyle}"
+                                Visibility="{Binding IsChecked, ElementName=ButtonsHelpToggle, Converter={StaticResource BooleanToVisibility}}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Bold>One button per line.</Bold> Write the text to copy with {tokens} in it:
+                                <LineBreak /><LineBreak />
+                                <Run FontFamily="Consolas">TRUNCATE TABLE [{schema}].[{fulltable}];</Run>
+                                <LineBreak /><LineBreak />
+                                Transforms: {table:upper}, lower, trim, pascal, camel, snake, kebab, title. Chain them: {table:snake:upper}. {{ and }} give a literal { or }.
+                                <LineBreak /><LineBreak />
+                                Multi-line button: a line with &lt;&lt;&lt; and a label, the lines to copy, then a line with only &gt;&gt;&gt;. Hover the button to see the full text.
+                                <LineBreak /><LineBreak />
+                                With layers, start a line with @ and layer names to show it in those layers only:<LineBreak /><Run FontFamily="Consolas">@stg Import {table} with SSIS</Run>
+                            </TextBlock>
+                        </Border>
+                        <TextBlock x:Name="ButtonsErrorText" DockPanel.Dock="Bottom" Style="{StaticResource ErrorTextStyle}" />
+                        <TextBox x:Name="ButtonsTextBox" Style="{StaticResource EditorTextBoxStyle}" TextChanged="SetupEditor_TextChanged" />
+                    </DockPanel>
+                </TabItem>
+            </TabControl>
         </Grid>
     </DockPanel>
 </Window>

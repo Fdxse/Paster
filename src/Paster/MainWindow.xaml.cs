@@ -208,11 +208,12 @@ public partial class MainWindow : Window
         currentSetup = SetupParser.Parse(TablesTextBox.Text, LayersTextBox.Text, VariablesTextBox.Text, JoinersTextBox.Text, ButtonsTextBox.Text);
         currentSteps = WorkPlanner.BuildSteps(currentSetup, walkOrder);
 
-        ShowSoftErrors(TablesTextBox, TablesErrorText, currentSetup.TableErrors);
-        ShowSoftErrors(LayersTextBox, LayersErrorText, currentSetup.LayerErrors);
-        ShowSoftErrors(VariablesTextBox, VariablesErrorText, currentSetup.VariableErrors);
-        ShowSoftErrors(JoinersTextBox, JoinersErrorText, currentSetup.JoinerErrors);
-        ShowSoftErrors(ButtonsTextBox, ButtonsErrorText, currentSetup.ButtonErrors);
+        ShowSoftErrors(TablesTab, "Tables", TablesTextBox, TablesErrorText, currentSetup.TableErrors);
+        ShowSoftErrors(LayersTab, "Layers", LayersTextBox, LayersErrorText, currentSetup.LayerErrors);
+        ShowSoftErrors(VariablesTab, "Variables", VariablesTextBox, VariablesErrorText, currentSetup.VariableErrors);
+        ShowSoftErrors(JoinersTab, "Joiners", JoinersTextBox, JoinersErrorText, currentSetup.JoinerErrors);
+        ShowSoftErrors(ButtonsTab, "Buttons", ButtonsTextBox, ButtonsErrorText, currentSetup.ButtonErrors);
+        UpdateInsertExampleButtons();
 
         // The walk order switch and the "step" wording only make sense with layers.
         bool usesLayers = currentSetup.Layers.Count > 0;
@@ -227,9 +228,20 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Colors an editor light red and lists its errors underneath, or clears both when there are none.
+    /// The tab header turns red with the error count too, so problems in a hidden tab are not missed.
     /// </summary>
-    private void ShowSoftErrors(TextBox editorTextBox, TextBlock errorTextBlock, List<string> errors)
+    private void ShowSoftErrors(TabItem editorTab, string tabName, TextBox editorTextBox, TextBlock errorTextBlock, List<string> errors)
     {
+        editorTab.Header = errors.Count == 0 ? tabName : $"{tabName} ({errors.Count})";
+        if (errors.Count == 0)
+        {
+            editorTab.ClearValue(ForegroundProperty);
+        }
+        else
+        {
+            editorTab.Foreground = (Brush)FindResource("SoftErrorTextBrush");
+        }
+
         if (errors.Count == 0)
         {
             editorTextBox.ClearValue(BackgroundProperty);
@@ -613,6 +625,66 @@ public partial class MainWindow : Window
             selectedListItem.ProgressText = BuildProgressText(selectedStep);
             selectedListItem.IsComplete = IsStepComplete(selectedStep);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Setup tabs: Insert example
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// "Insert example" in one of the setup tabs: fills that box with the lines from the example setup.
+    /// Only allowed while the box holds nothing but blank lines and // comments, so real work is never overwritten.
+    /// </summary>
+    private void InsertExampleButton_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        SetupFile exampleSetup = SetupFile.CreateExample();
+
+        (TextBox editorTextBox, List<string> exampleLines) = sender switch
+        {
+            _ when sender == TablesExampleButton => (TablesTextBox, exampleSetup.Tables),
+            _ when sender == LayersExampleButton => (LayersTextBox, exampleSetup.Layers),
+            _ when sender == VariablesExampleButton => (VariablesTextBox, exampleSetup.Variables),
+            _ when sender == JoinersExampleButton => (JoinersTextBox, exampleSetup.Joiners),
+            _ => (ButtonsTextBox, exampleSetup.Buttons),
+        };
+
+        if (HasMeaningfulLines(editorTextBox.Text))
+        {
+            ShowStatus("Insert example only works on a box without lines of its own (comments are fine).");
+            return;
+        }
+
+        // Replacing the selection (instead of setting Text) keeps Ctrl+Z working. It counts as an edit,
+        // so everything refreshes and the setup is marked as changed.
+        editorTextBox.Focus();
+        editorTextBox.SelectAll();
+        editorTextBox.SelectedText = string.Join(Environment.NewLine, exampleLines);
+        editorTextBox.CaretIndex = editorTextBox.Text.Length;
+        ShowStatus("Example inserted. Change it to fit, or Ctrl+Z to take it back.");
+    }
+
+    /// <summary>
+    /// Enables each "Insert example" button only while its box has nothing but blank lines and comments.
+    /// </summary>
+    private void UpdateInsertExampleButtons()
+    {
+        TablesExampleButton.IsEnabled = !HasMeaningfulLines(TablesTextBox.Text);
+        LayersExampleButton.IsEnabled = !HasMeaningfulLines(LayersTextBox.Text);
+        VariablesExampleButton.IsEnabled = !HasMeaningfulLines(VariablesTextBox.Text);
+        JoinersExampleButton.IsEnabled = !HasMeaningfulLines(JoinersTextBox.Text);
+        ButtonsExampleButton.IsEnabled = !HasMeaningfulLines(ButtonsTextBox.Text);
+    }
+
+    /// <summary>
+    /// True if the text has at least one line that is not blank and not a // comment.
+    /// </summary>
+    private static bool HasMeaningfulLines(string editorText)
+    {
+        return editorText
+            .Replace("\r\n", "\n")
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Any(trimmedLine => trimmedLine.Length > 0 && !trimmedLine.StartsWith("//", StringComparison.Ordinal));
     }
 
     // ------------------------------------------------------------------
