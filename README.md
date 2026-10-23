@@ -19,7 +19,9 @@ Click "More info" and then "Run anyway" (or right-click the zip, Properties, tic
 
 ## Modes
 
-- **Setup**: the five editors are shown on the right. The buttons update as you type, so they work as a live preview.
+- **Setup**: the five editors are shown on the right, one tab each. The buttons update as you type, so they work as a live preview.
+  A tab with problems turns red with the count, e.g. `Joiners (2)`. **Help** in a tab explains what that box accepts, and
+  **Insert example** fills the box with example lines (only while it has nothing but `//` comments).
 - **Action**: the editors are hidden; just pick a table and click buttons.
 
 The app starts in the mode it was closed in.

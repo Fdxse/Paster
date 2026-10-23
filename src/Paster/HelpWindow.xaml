@@ -106,6 +106,8 @@
             <Paragraph Style="{StaticResource SectionHeading}">8. Setup and Action mode</Paragraph>
             <List MarkerStyle="Disc">
                 <ListItem><Paragraph><Bold>Setup</Bold> shows the five editors. The buttons update as you type, so they work as a live preview.</Paragraph></ListItem>
+                <ListItem><Paragraph>The five editors are tabs. A tab with problems turns red and shows how many, e.g. Joiners (2).</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Help</Bold> in a tab explains what you can write in that box. <Bold>Insert example</Bold> fills the box with example lines; it works while the box has nothing but comments.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Action</Bold> hides the editors and shows the action log. Use it when you are working through the tables.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Always on top</Bold> keeps Paster above other windows.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>View > Action buttons</Bold> makes the buttons bigger in Action mode: Normal, Large, Extra large, or Fill the window (the buttons share the whole height). The choice is saved in the setup file.</Paragraph></ListItem>
