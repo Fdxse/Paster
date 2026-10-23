@@ -204,6 +204,7 @@ public partial class MainWindow : Window
 
         RebuildTableList();
         RebuildButtons();
+        UpdateOverallProgress();
     }
 
     /// <summary>
@@ -278,17 +279,22 @@ public partial class MainWindow : Window
         {
             RenderResult renderResult = templateRenderer.Render(buttonTemplate.Template);
 
-            string toolTipText = buttonTemplate.Template;
-            if (renderResult.HasErrors)
+            // A labelled block shows its (rendered) label on the button; the full text is in the tooltip.
+            RenderResult? labelResult = buttonTemplate.Label is null ? null : templateRenderer.Render(buttonTemplate.Label);
+            List<string> allErrors = renderResult.Errors.Concat(labelResult?.Errors ?? new List<string>()).ToList();
+
+            string toolTipText = renderResult.Text;
+            if (allErrors.Count > 0)
             {
-                toolTipText += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, renderResult.Errors);
+                toolTipText += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, allErrors);
             }
 
             buttonItems.Add(new ClipboardButtonItem
             {
                 RenderedText = renderResult.Text,
+                DisplayText = labelResult?.Text ?? renderResult.Text,
                 Template = buttonTemplate.Template,
-                HasError = renderResult.HasErrors,
+                HasError = allErrors.Count > 0,
                 ToolTipText = toolTipText,
                 IsUsed = usedTexts.Contains(renderResult.Text),
             });
@@ -348,6 +354,7 @@ public partial class MainWindow : Window
                 buttonItem.IsUsed = false;
                 usedTexts.Remove(buttonItem.RenderedText);
                 UpdateSelectedTableProgress(selectedTable);
+                UpdateOverallProgress();
                 ShowStatus("Button enabled again.");
                 RecordAction("Re-enabled", selectedTable.Name, buttonItem.RenderedText);
             }
@@ -368,6 +375,7 @@ public partial class MainWindow : Window
         buttonItem.IsUsed = true;
         usedTexts.Add(buttonItem.RenderedText);
         UpdateSelectedTableProgress(selectedTable);
+        UpdateOverallProgress();
         ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
         RecordAction("Copied", selectedTable.Name, buttonItem.RenderedText);
     }
@@ -375,7 +383,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Makes every button for the selected table clickable again.
     /// </summary>
-    private void ResetUsedButton_Click(object sender, RoutedEventArgs eventArgs)
+    private void ResetTableButton_Click(object sender, RoutedEventArgs eventArgs)
     {
         TableEntry? selectedTable = GetSelectedTable();
         if (selectedTable is null)
@@ -386,6 +394,7 @@ public partial class MainWindow : Window
         usedTextsByTable.Remove(selectedTable.Name);
         RebuildButtons();
         UpdateSelectedTableProgress(selectedTable);
+        UpdateOverallProgress();
         ShowStatus($"All buttons for {selectedTable.Name} are enabled again.");
         RecordAction("Reset", selectedTable.Name, string.Empty);
     }
@@ -444,17 +453,67 @@ public partial class MainWindow : Window
     /// </summary>
     private string BuildProgressText(TableEntry tableEntry)
     {
+        int usedButtonCount = CountUsedButtons(tableEntry);
+        return usedButtonCount == 0 ? string.Empty : $"{usedButtonCount}/{currentSetup.ButtonTemplates.Count}";
+    }
+
+    /// <summary>
+    /// How many of a table's buttons have been copied (and not re-enabled since).
+    /// </summary>
+    private int CountUsedButtons(TableEntry tableEntry)
+    {
         if (!usedTextsByTable.TryGetValue(tableEntry.Name, out HashSet<string>? usedTexts) || usedTexts.Count == 0)
         {
-            return string.Empty;
+            return 0;
         }
 
         var templateRenderer = new TemplateRenderer(currentSetup, tableEntry);
-        int totalButtonCount = currentSetup.ButtonTemplates.Count;
-        int usedButtonCount = currentSetup.ButtonTemplates
+        return currentSetup.ButtonTemplates
             .Count(buttonTemplate => usedTexts.Contains(templateRenderer.Render(buttonTemplate.Template).Text));
+    }
 
-        return $"{usedButtonCount}/{totalButtonCount}";
+    /// <summary>
+    /// Updates the progress bar above the buttons: copied buttons out of all buttons, over every table.
+    /// </summary>
+    private void UpdateOverallProgress()
+    {
+        // Can be called while the window is still being built.
+        if (OverallProgressBar is null || OverallProgressText is null)
+        {
+            return;
+        }
+
+        int totalButtonCount = currentSetup.Tables.Count * currentSetup.ButtonTemplates.Count;
+        int usedButtonCount = currentSetup.Tables.Sum(CountUsedButtons);
+
+        OverallProgressBar.Maximum = Math.Max(totalButtonCount, 1);
+        OverallProgressBar.Value = usedButtonCount;
+
+        int percentDone = totalButtonCount == 0 ? 0 : (int)Math.Round(100.0 * usedButtonCount / totalButtonCount);
+        OverallProgressText.Text = $"{usedButtonCount} / {totalButtonCount}  ({percentDone}%)";
+    }
+
+    /// <summary>
+    /// Makes every button for every table clickable again (asks first, since it can't be undone).
+    /// </summary>
+    private void ResetAllButton_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        if (usedTextsByTable.Values.All(usedTexts => usedTexts.Count == 0))
+        {
+            return;
+        }
+
+        MessageBoxResult answer = MessageBox.Show(this, "Make every button for every table clickable again?", "Paster",
+            MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        usedTextsByTable.Clear();
+        RefreshEverything();
+        ShowStatus("All buttons for all tables are enabled again.");
+        RecordAction("Reset all", string.Empty, string.Empty);
     }
 
     /// <summary>
@@ -647,6 +706,42 @@ public partial class MainWindow : Window
         if (logFileError is not null)
         {
             ShowStatus($"Could not write the log file: {logFileError}", isError: true);
+        }
+    }
+
+    /// <summary>
+    /// Saves the entries in the log list (oldest first) to a tab-separated text file.
+    /// </summary>
+    private void ExportLogButton_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        if (actionLog.Entries.Count == 0)
+        {
+            ShowStatus("The log list is empty, nothing to export.");
+            return;
+        }
+
+        var saveFileDialog = new SaveFileDialog
+        {
+            Title = "Export action log",
+            Filter = "Text file, tab-separated (*.txt)|*.txt|All files (*.*)|*.*",
+            DefaultExt = ".txt",
+            AddExtension = true,
+            FileName = $"paster-log-{DateTime.Now:yyyyMMdd-HHmm}.txt",
+        };
+
+        if (saveFileDialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            actionLog.ExportDisplayedEntries(saveFileDialog.FileName);
+            ShowStatus($"Exported {actionLog.Entries.Count} log entries to {saveFileDialog.FileName}");
+        }
+        catch (Exception exportException)
+        {
+            ShowStatus($"Could not export the log: {exportException.Message}", isError: true);
         }
     }
 

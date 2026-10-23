@@ -149,9 +149,6 @@
                                  Checked="ModeRadioButton_Checked"
                                  ToolTip="Hide the editors and just use the buttons" />
                 </StackPanel>
-                <Button x:Name="ResetUsedButton" DockPanel.Dock="Right" Content="Reset buttons" Padding="12,3" Margin="0,0,8,0"
-                        Click="ResetUsedButton_Click"
-                        ToolTip="Make every button for the selected table clickable again" />
                 <TextBlock x:Name="StatusTextBlock" VerticalAlignment="Center" Foreground="#FF505050"
                            TextTrimming="CharacterEllipsis"
                            Text="Click a button to copy. Ctrl+click a greyed-out button to enable it again." />
@@ -167,6 +164,8 @@
                             ToolTip="Show the daily log files in Explorer" />
                     <Button DockPanel.Dock="Right" Content="Clear" Padding="10,2" Margin="0,0,6,0" Click="ClearLogButton_Click"
                             ToolTip="Clear this list (the log files are kept)" />
+                    <Button DockPanel.Dock="Right" Content="Export..." Padding="10,2" Margin="0,0,6,0" Click="ExportLogButton_Click"
+                            ToolTip="Save the entries in this list to a text file (tab-separated, opens in Excel)" />
                     <TextBlock Text="Action log" Style="{StaticResource HeaderTextStyle}" VerticalAlignment="Center" />
                 </DockPanel>
                 <ListBox x:Name="ActionLogListBox" FontFamily="Consolas" FontSize="12"
@@ -221,14 +220,37 @@
             <!-- Middle: buttons for the selected table -->
             <DockPanel Grid.Column="2">
                 <TextBlock x:Name="SelectedTableHeader" DockPanel.Dock="Top" Text="Buttons" Style="{StaticResource HeaderTextStyle}" />
+
+                <!-- Progress over all tables: copied buttons out of all buttons, plus the reset buttons. -->
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Button DockPanel.Dock="Right" Content="Reset all" Padding="10,2" Margin="6,0,0,0"
+                            Click="ResetAllButton_Click"
+                            ToolTip="Make every button for every table clickable again" />
+                    <Button DockPanel.Dock="Right" Content="Reset table" Padding="10,2" Margin="6,0,0,0"
+                            Click="ResetTableButton_Click"
+                            ToolTip="Make every button for the selected table clickable again" />
+                    <TextBlock x:Name="OverallProgressText" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,0,0"
+                               Foreground="#FF505050" Text="0 / 0" />
+                    <ProgressBar x:Name="OverallProgressBar" Height="14" Minimum="0" Maximum="1" Value="0"
+                                 ToolTip="Copied buttons out of all buttons, over all tables" />
+                </DockPanel>
+
                 <ScrollViewer x:Name="ButtonScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <ItemsControl x:Name="ButtonItemsControl" ItemsPanel="{StaticResource StackedButtonsPanel}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Button Style="{StaticResource ClipboardButtonStyle}"
                                         Click="ClipboardButton_Click"
-                                        ToolTip="{Binding ToolTipText}">
-                                    <TextBlock Text="{Binding RenderedText}" TextWrapping="Wrap" FontFamily="Consolas"
+                                        ToolTipService.InitialShowDelay="300"
+                                        ToolTipService.ShowDuration="60000">
+                                    <!-- Hover: the full text that will be copied (handy for labelled multi-line buttons). -->
+                                    <Button.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="{Binding ToolTipText}" FontFamily="Consolas" FontSize="13"
+                                                       TextWrapping="Wrap" MaxWidth="900" />
+                                        </ToolTip>
+                                    </Button.ToolTip>
+                                    <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap" FontFamily="Consolas"
                                                FontSize="{DynamicResource ClipboardButtonFontSize}" />
                                 </Button>
                             </DataTemplate>

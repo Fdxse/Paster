@@ -60,13 +60,16 @@ public sealed class ClipboardButtonItem : ObservableObject
     /// <summary>The finished text that is copied to the clipboard.</summary>
     public string RenderedText { get; init; } = string.Empty;
 
+    /// <summary>What the button shows: the rendered label of a "&lt;&lt;&lt; label" block, otherwise the text itself.</summary>
+    public string DisplayText { get; init; } = string.Empty;
+
     /// <summary>The template the text came from, shown in the tooltip.</summary>
     public string Template { get; init; } = string.Empty;
 
     /// <summary>True if rendering failed somewhere (button is shown light red).</summary>
     public bool HasError { get; init; }
 
-    /// <summary>Tooltip text: template plus any errors.</summary>
+    /// <summary>Tooltip text: the full rendered text plus any errors.</summary>
     public string ToolTipText { get; init; } = string.Empty;
 
     /// <summary>

@@ -26,8 +26,14 @@ public sealed class ButtonTemplate
     /// <summary>1-based line number in the button editor, used in error messages.</summary>
     public int LineNumber { get; init; }
 
-    /// <summary>The raw template text with {tokens} in it.</summary>
+    /// <summary>The raw template text with {tokens} in it. Can span several lines (a "&lt;&lt;&lt; ... &gt;&gt;&gt;" block).</summary>
     public string Template { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Optional caption shown on the button instead of the text, e.g. "Truncate and load" for a block.
+    /// May contain {tokens} too. Null means the button shows the rendered text itself.
+    /// </summary>
+    public string? Label { get; init; }
 }
 
 /// <summary>
