@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Threading;
 using Microsoft.Win32;
 using Paster.Configuration;
 using Paster.Engine;
@@ -18,12 +17,6 @@ namespace Paster;
 /// </summary>
 public partial class MainWindow : Window
 {
-    /// <summary>How long to wait after the last keystroke before writing config.json.</summary>
-    private static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(700);
-
-    /// <summary>Waits for typing to pause, then saves. Restarted on every edit.</summary>
-    private readonly DispatcherTimer saveTimer;
-
     /// <summary>
     /// Which buttons have been copied, per table. The key is the table name and the set holds the
     /// rendered texts that were copied. Using the rendered text means a button becomes clickable again
@@ -34,8 +27,8 @@ public partial class MainWindow : Window
     /// <summary>The most recent parse of the four editors.</summary>
     private ParsedSetup currentSetup = new();
 
-    /// <summary>True while the editors are being filled from config.json, so that doesn't trigger a save.</summary>
-    private bool isLoadingConfig;
+    /// <summary>True while the editors are being filled from a file, so that doesn't count as an edit.</summary>
+    private bool isLoadingSetup;
 
     /// <summary>Width of the setup panel before it was hidden, so it comes back at the same size.</summary>
     private GridLength setupColumnWidthBeforeHide = new(420);
@@ -43,130 +36,106 @@ public partial class MainWindow : Window
     /// <summary>Records what is done in Action mode (window list + daily log file).</summary>
     private readonly ActionLog actionLog = new();
 
-    /// <summary>The setup file that "Save" writes to, or null if the setup has not been saved to a file yet.</summary>
+    /// <summary>The setup file that "Save" writes to, or null for a new setup that has never been saved.</summary>
     private string? currentSetupFilePath;
 
     /// <summary>True when the editors changed since the setup file was last opened or saved.</summary>
     private bool hasUnsavedSetupChanges;
 
+    /// <summary>Mode, "Always on top" and recent files, kept per computer (see <see cref="AppPreferences"/>).</summary>
+    private readonly AppPreferences preferences = AppPreferences.Load();
+
     public MainWindow()
     {
         InitializeComponent();
 
-        saveTimer = new DispatcherTimer { Interval = SaveDelay };
-        saveTimer.Tick += SaveTimer_Tick;
-
         ActionLogListBox.ItemsSource = actionLog.Entries;
 
-        LoadConfigIntoEditors();
-        RefreshEverything();
-
-        // Start with the first table selected so there are buttons to click right away.
-        if (TableListBox.Items.Count > 0)
-        {
-            TableListBox.SelectedIndex = 0;
-        }
+        ApplyPreferences();
+        OpenStartupSetup();
+        RebuildRecentFilesMenu();
     }
 
     // ------------------------------------------------------------------
-    // Config loading / saving
+    // Startup and closing
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Reads config.json (creating it with dummy values if missing) and puts each section in its editor.
-    /// A broken file is renamed out of the way so the user's content is not lost.
+    /// Restores the mode and "Always on top" from the last time Paster ran on this computer.
     /// </summary>
-    private void LoadConfigIntoEditors()
+    private void ApplyPreferences()
     {
-        PasterConfig loadedConfig;
+        isLoadingSetup = true;
         try
         {
-            loadedConfig = ConfigStore.LoadOrCreate();
-            ShowStatus($"Config: {ConfigStore.ConfigFilePath}");
-        }
-        catch (Exception loadException)
-        {
-            string backupFilePath = ConfigStore.ConfigFilePath + $".broken-{DateTime.Now:yyyyMMdd-HHmmss}";
-            try
-            {
-                File.Move(ConfigStore.ConfigFilePath, backupFilePath);
-            }
-            catch (Exception)
-            {
-                // If even the rename fails we still continue with defaults; the message below explains.
-            }
-
-            MessageBox.Show(
-                this,
-                $"config.json could not be read:\n\n{loadException.Message}\n\n" +
-                $"It was renamed to:\n{backupFilePath}\n\nPaster starts with the example setup instead.",
-                "Paster",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-
-            loadedConfig = PasterConfig.CreateDefault();
-        }
-
-        isLoadingConfig = true;
-        try
-        {
-            TablesTextBox.Text = string.Join(Environment.NewLine, loadedConfig.Tables);
-            VariablesTextBox.Text = string.Join(Environment.NewLine, loadedConfig.Variables);
-            JoinersTextBox.Text = string.Join(Environment.NewLine, loadedConfig.Joiners);
-            ButtonsTextBox.Text = string.Join(Environment.NewLine, loadedConfig.Buttons);
-
-            // Start in the mode the app was last closed in.
-            bool startInActionMode = string.Equals(loadedConfig.Mode, PasterConfig.ActionModeName, StringComparison.OrdinalIgnoreCase);
+            bool startInActionMode = string.Equals(preferences.Mode, AppPreferences.ActionModeName, StringComparison.OrdinalIgnoreCase);
             ActionModeRadioButton.IsChecked = startInActionMode;
             SetupModeRadioButton.IsChecked = !startInActionMode;
             ApplyMode(startInActionMode);
 
-            // Restore "Always on top" from the last session.
-            AlwaysOnTopCheckBox.IsChecked = loadedConfig.AlwaysOnTop;
-            Topmost = loadedConfig.AlwaysOnTop;
-
-            // Remember which setup file "Save" writes to.
-            currentSetupFilePath = loadedConfig.CurrentSetupFile;
+            AlwaysOnTopCheckBox.IsChecked = preferences.AlwaysOnTop;
+            Topmost = preferences.AlwaysOnTop;
         }
         finally
         {
-            isLoadingConfig = false;
+            isLoadingSetup = false;
         }
-
-        UpdateTitle();
     }
 
     /// <summary>
-    /// Writes the current editor contents to config.json.
+    /// Picks the setup to start with: a file given on the command line (e.g. a .json dropped on Paster.exe),
+    /// otherwise the most recently used file, otherwise config.json next to the EXE
+    /// (created with example values if it does not exist yet).
     /// </summary>
-    private void SaveConfigNow()
+    private void OpenStartupSetup()
     {
-        saveTimer.Stop();
-
-        var configToSave = new PasterConfig
+        string[] commandLineArguments = Environment.GetCommandLineArgs();
+        string? commandLineFile = commandLineArguments.Length > 1 ? commandLineArguments[1] : null;
+        if (commandLineFile is not null && File.Exists(commandLineFile) && TryOpenSetupFile(commandLineFile))
         {
-            Tables = SplitEditorLines(TablesTextBox.Text),
-            Variables = SplitEditorLines(VariablesTextBox.Text),
-            Joiners = SplitEditorLines(JoinersTextBox.Text),
-            Buttons = SplitEditorLines(ButtonsTextBox.Text),
-            Mode = ActionModeRadioButton.IsChecked == true ? PasterConfig.ActionModeName : PasterConfig.SetupModeName,
-            AlwaysOnTop = AlwaysOnTopCheckBox.IsChecked == true,
-            CurrentSetupFile = currentSetupFilePath,
-        };
-
-        try
-        {
-            ConfigStore.Save(configToSave);
-            ShowStatus($"Saved {DateTime.Now:HH:mm:ss} to {ConfigStore.ConfigFilePath}");
+            return;
         }
-        catch (Exception saveException)
+
+        string? mostRecentFile = preferences.RecentFiles.FirstOrDefault(File.Exists);
+        if (mostRecentFile is not null && TryOpenSetupFile(mostRecentFile))
         {
-            ShowStatus($"Could not save config.json: {saveException.Message}", isError: true);
+            return;
+        }
+
+        if (!File.Exists(SetupFile.DefaultFilePath))
+        {
+            try
+            {
+                SetupFile.CreateExample().Save(SetupFile.DefaultFilePath);
+            }
+            catch (Exception createException)
+            {
+                // E.g. the EXE is in a read-only folder: show the example anyway, unsaved.
+                ShowSetupInEditors(SetupFile.CreateExample(), filePath: null);
+                ShowStatus($"Could not create {SetupFile.DefaultFilePath}: {createException.Message}", isError: true);
+                return;
+            }
+        }
+
+        if (!TryOpenSetupFile(SetupFile.DefaultFilePath))
+        {
+            ShowSetupInEditors(SetupFile.CreateExample(), filePath: null);
         }
     }
 
     /// <summary>
-    /// Splits editor text into lines for config.json. Trailing empty lines are dropped.
+    /// Offers to save unsaved changes before the window closes.
+    /// </summary>
+    private void Window_Closing(object? sender, CancelEventArgs eventArgs)
+    {
+        if (!ConfirmDiscardUnsavedChanges())
+        {
+            eventArgs.Cancel = true;
+        }
+    }
+
+    /// <summary>
+    /// Splits editor text into lines for the setup file. Trailing empty lines are dropped.
     /// </summary>
     private static List<string> SplitEditorLines(string editorText)
     {
@@ -179,30 +148,16 @@ public partial class MainWindow : Window
         return lines;
     }
 
-    private void SaveTimer_Tick(object? sender, EventArgs eventArgs)
-    {
-        SaveConfigNow();
-    }
-
-    private void Window_Closing(object? sender, CancelEventArgs eventArgs)
-    {
-        // Make sure the last edits are written even if the save timer has not fired yet.
-        if (saveTimer.IsEnabled)
-        {
-            SaveConfigNow();
-        }
-    }
-
     // ------------------------------------------------------------------
     // Live update
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Any edit in any of the four editors: refresh everything right away and schedule a save.
+    /// Any edit in any of the four editors: refresh everything right away and mark the setup as changed.
     /// </summary>
     private void SetupEditor_TextChanged(object sender, TextChangedEventArgs eventArgs)
     {
-        if (isLoadingConfig)
+        if (isLoadingSetup)
         {
             return;
         }
@@ -214,10 +169,6 @@ public partial class MainWindow : Window
             hasUnsavedSetupChanges = true;
             UpdateTitle();
         }
-
-        // Restart the timer so we save once the user pauses typing.
-        saveTimer.Stop();
-        saveTimer.Start();
     }
 
     /// <summary>
@@ -520,13 +471,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        ApplyMode(isActionMode: ActionModeRadioButton.IsChecked == true);
+        bool isActionMode = ActionModeRadioButton.IsChecked == true;
+        ApplyMode(isActionMode);
 
-        // The mode is remembered in config.json, so save it like any other change.
-        if (!isLoadingConfig)
+        // The mode is a per-computer preference, not part of the setup file.
+        if (!isLoadingSetup)
         {
-            saveTimer.Stop();
-            saveTimer.Start();
+            preferences.Mode = isActionMode ? AppPreferences.ActionModeName : AppPreferences.SetupModeName;
+            preferences.Save();
         }
     }
 
@@ -537,10 +489,10 @@ public partial class MainWindow : Window
     {
         Topmost = AlwaysOnTopCheckBox.IsChecked == true;
 
-        if (!isLoadingConfig)
+        if (!isLoadingSetup)
         {
-            saveTimer.Stop();
-            saveTimer.Start();
+            preferences.AlwaysOnTop = Topmost;
+            preferences.Save();
         }
     }
 
@@ -584,7 +536,7 @@ public partial class MainWindow : Window
     private void UpdateTitle()
     {
         string modeName = ActionModeRadioButton?.IsChecked == true ? "Action" : "Setup";
-        string setupFileName = currentSetupFilePath is null ? "unsaved setup" : Path.GetFileName(currentSetupFilePath);
+        string setupFileName = currentSetupFilePath is null ? "New setup" : Path.GetFileName(currentSetupFilePath);
         string unsavedMarker = hasUnsavedSetupChanges ? " *" : string.Empty;
         Title = $"Paster - {modeName} - {setupFileName}{unsavedMarker}";
     }
@@ -637,11 +589,11 @@ public partial class MainWindow : Window
     }
 
     // ------------------------------------------------------------------
-    // Setup files (Open / Save / Save as)
+    // File menu: New / Open / Open recent / Save / Save as
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Ctrl+O = Open, Ctrl+S = Save, Ctrl+Shift+S = Save as.
+    /// Ctrl+N = New, Ctrl+O = Open, Ctrl+S = Save, Ctrl+Shift+S = Save as.
     /// </summary>
     private void Window_PreviewKeyDown(object sender, KeyEventArgs keyEventArgs)
     {
@@ -652,36 +604,55 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (keyEventArgs.Key == Key.O)
+        switch (keyEventArgs.Key)
         {
-            OpenSetupFile();
-            keyEventArgs.Handled = true;
-        }
-        else if (keyEventArgs.Key == Key.S)
-        {
-            if (isShiftHeld)
-            {
+            case Key.N:
+                NewSetup();
+                keyEventArgs.Handled = true;
+                break;
+            case Key.O:
+                OpenSetupWithDialog();
+                keyEventArgs.Handled = true;
+                break;
+            case Key.S when isShiftHeld:
                 SaveSetupFileAs();
-            }
-            else
-            {
+                keyEventArgs.Handled = true;
+                break;
+            case Key.S:
                 SaveSetupFile();
-            }
-
-            keyEventArgs.Handled = true;
+                keyEventArgs.Handled = true;
+                break;
         }
     }
 
-    private void OpenSetupButton_Click(object sender, RoutedEventArgs eventArgs) => OpenSetupFile();
+    private void NewMenuItem_Click(object sender, RoutedEventArgs eventArgs) => NewSetup();
 
-    private void SaveSetupButton_Click(object sender, RoutedEventArgs eventArgs) => SaveSetupFile();
+    private void OpenMenuItem_Click(object sender, RoutedEventArgs eventArgs) => OpenSetupWithDialog();
 
-    private void SaveSetupAsButton_Click(object sender, RoutedEventArgs eventArgs) => SaveSetupFileAs();
+    private void SaveMenuItem_Click(object sender, RoutedEventArgs eventArgs) => SaveSetupFile();
+
+    private void SaveAsMenuItem_Click(object sender, RoutedEventArgs eventArgs) => SaveSetupFileAs();
+
+    private void ExitMenuItem_Click(object sender, RoutedEventArgs eventArgs) => Close();
 
     /// <summary>
-    /// Asks for a setup file and loads it into the editors. Offers to save unsaved changes first.
+    /// File > New: an empty setup that has no file yet (Save will ask for a name).
     /// </summary>
-    private void OpenSetupFile()
+    private void NewSetup()
+    {
+        if (!ConfirmDiscardUnsavedChanges())
+        {
+            return;
+        }
+
+        ShowSetupInEditors(SetupFile.CreateEmpty(), filePath: null);
+        ShowStatus("New setup. Use File > Save to give it a name.");
+    }
+
+    /// <summary>
+    /// File > Open: asks for a setup file and opens it.
+    /// </summary>
+    private void OpenSetupWithDialog()
     {
         if (!ConfirmDiscardUnsavedChanges())
         {
@@ -695,52 +666,137 @@ public partial class MainWindow : Window
             InitialDirectory = GetDialogFolder(),
         };
 
-        if (openFileDialog.ShowDialog(this) != true)
+        if (openFileDialog.ShowDialog(this) == true)
+        {
+            TryOpenSetupFile(openFileDialog.FileName);
+        }
+    }
+
+    /// <summary>
+    /// File > Open recent > (a file).
+    /// </summary>
+    private void RecentFileMenuItem_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is not MenuItem { Tag: string recentFilePath })
         {
             return;
         }
 
+        if (!ConfirmDiscardUnsavedChanges())
+        {
+            return;
+        }
+
+        if (!File.Exists(recentFilePath))
+        {
+            MessageBox.Show(this, $"The file no longer exists:\n\n{recentFilePath}", "Paster",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            preferences.RecentFiles.Remove(recentFilePath);
+            preferences.Save();
+            RebuildRecentFilesMenu();
+            return;
+        }
+
+        TryOpenSetupFile(recentFilePath);
+    }
+
+    /// <summary>
+    /// File > Open recent > Clear list.
+    /// </summary>
+    private void ClearRecentFilesMenuItem_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        preferences.RecentFiles.Clear();
+        preferences.Save();
+        RebuildRecentFilesMenu();
+    }
+
+    /// <summary>
+    /// A .json file dragged onto the window is opened like File > Open.
+    /// </summary>
+    private void Window_Drop(object sender, DragEventArgs dragEventArgs)
+    {
+        if (dragEventArgs.Data.GetData(DataFormats.FileDrop) is not string[] { Length: > 0 } droppedFilePaths)
+        {
+            return;
+        }
+
+        dragEventArgs.Handled = true;
+
+        if (ConfirmDiscardUnsavedChanges())
+        {
+            TryOpenSetupFile(droppedFilePaths[0]);
+        }
+    }
+
+    /// <summary>
+    /// Only show the "copy" cursor when files are dragged over the window.
+    /// </summary>
+    private void Window_DragOver(object sender, DragEventArgs dragEventArgs)
+    {
+        // Leave normal text drag-and-drop inside the editors alone.
+        if (!dragEventArgs.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            return;
+        }
+
+        dragEventArgs.Effects = DragDropEffects.Copy;
+        dragEventArgs.Handled = true;
+    }
+
+    /// <summary>
+    /// Reads a setup file and shows it. Tells the user and returns false if the file can't be read.
+    /// Does not ask about unsaved changes; callers do that first.
+    /// </summary>
+    private bool TryOpenSetupFile(string filePath)
+    {
         SetupFile loadedSetup;
         try
         {
-            loadedSetup = SetupFile.Load(openFileDialog.FileName);
+            loadedSetup = SetupFile.Load(filePath);
         }
         catch (Exception loadException)
         {
-            MessageBox.Show(this, $"Could not open the setup:\n\n{loadException.Message}", "Paster",
+            MessageBox.Show(this, $"Could not open the setup:\n{filePath}\n\n{loadException.Message}", "Paster",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            return false;
         }
 
-        isLoadingConfig = true;
+        string fullPath = Path.GetFullPath(filePath);
+        ShowSetupInEditors(loadedSetup, fullPath);
+        RememberRecentFile(fullPath);
+        ShowStatus($"Opened {fullPath}");
+        return true;
+    }
+
+    /// <summary>
+    /// Puts a setup in the four editors and makes it the current one. Every button starts clickable again.
+    /// </summary>
+    private void ShowSetupInEditors(SetupFile setup, string? filePath)
+    {
+        isLoadingSetup = true;
         try
         {
-            TablesTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Tables);
-            VariablesTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Variables);
-            JoinersTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Joiners);
-            ButtonsTextBox.Text = string.Join(Environment.NewLine, loadedSetup.Buttons);
+            TablesTextBox.Text = string.Join(Environment.NewLine, setup.Tables);
+            VariablesTextBox.Text = string.Join(Environment.NewLine, setup.Variables);
+            JoinersTextBox.Text = string.Join(Environment.NewLine, setup.Joiners);
+            ButtonsTextBox.Text = string.Join(Environment.NewLine, setup.Buttons);
         }
         finally
         {
-            isLoadingConfig = false;
+            isLoadingSetup = false;
         }
 
-        // A new setup starts with every button clickable.
         usedTextsByTable.Clear();
-        currentSetupFilePath = openFileDialog.FileName;
+        currentSetupFilePath = filePath;
         hasUnsavedSetupChanges = false;
 
         RefreshEverything();
         TableListBox.SelectedIndex = TableListBox.Items.Count > 0 ? 0 : -1;
         UpdateTitle();
-
-        // Remember the opened setup as the working copy in config.json too.
-        SaveConfigNow();
-        ShowStatus($"Opened {currentSetupFilePath}");
     }
 
     /// <summary>
-    /// Saves to the current setup file, or asks for a file name if there is none yet.
+    /// File > Save: writes to the current file, or asks for a name for a new setup.
     /// Returns true if the setup was saved.
     /// </summary>
     private bool SaveSetupFile()
@@ -754,7 +810,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Asks for a file name and saves the setup there. Returns true if the setup was saved.
+    /// File > Save as: asks for a file name, saves there and continues working in that file.
+    /// Returns true if the setup was saved.
     /// </summary>
     private bool SaveSetupFileAs()
     {
@@ -764,6 +821,7 @@ public partial class MainWindow : Window
             Filter = "Paster setup (*.json)|*.json",
             DefaultExt = ".json",
             AddExtension = true,
+            OverwritePrompt = true,
             InitialDirectory = GetDialogFolder(),
             FileName = currentSetupFilePath is null ? "setup.json" : Path.GetFileName(currentSetupFilePath),
         };
@@ -777,7 +835,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Writes the four editors to a setup file and makes it the current one.
+    /// Writes the four editors to a file and makes it the current one.
     /// </summary>
     private bool WriteSetupFile(string filePath)
     {
@@ -795,21 +853,23 @@ public partial class MainWindow : Window
         }
         catch (Exception saveException)
         {
-            ShowStatus($"Could not save the setup: {saveException.Message}", isError: true);
+            MessageBox.Show(this, $"Could not save the setup:\n{filePath}\n\n{saveException.Message}", "Paster",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
 
-        currentSetupFilePath = filePath;
+        string fullPath = Path.GetFullPath(filePath);
+        currentSetupFilePath = fullPath;
         hasUnsavedSetupChanges = false;
         UpdateTitle();
-        SaveConfigNow();
-        ShowStatus($"Saved setup to {filePath}");
+        RememberRecentFile(fullPath);
+        ShowStatus($"Saved {DateTime.Now:HH:mm:ss} to {fullPath}");
         return true;
     }
 
     /// <summary>
-    /// If there are unsaved changes, asks whether to save them. Returns false if the user cancels.
-    /// (The editors are always kept in config.json, so "No" only skips writing the setup file.)
+    /// If there are unsaved changes, asks whether to save them. Returns false if the user cancels
+    /// (or chose to save and the save did not happen).
     /// </summary>
     private bool ConfirmDiscardUnsavedChanges()
     {
@@ -818,10 +878,10 @@ public partial class MainWindow : Window
             return true;
         }
 
-        string setupName = currentSetupFilePath is null ? "the current setup" : Path.GetFileName(currentSetupFilePath);
+        string setupName = currentSetupFilePath is null ? "the new setup" : Path.GetFileName(currentSetupFilePath);
         MessageBoxResult answer = MessageBox.Show(
             this,
-            $"Save changes to {setupName} first?",
+            $"Save changes to {setupName}?",
             "Paster",
             MessageBoxButton.YesNoCancel,
             MessageBoxImage.Question);
@@ -835,26 +895,54 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Folder the file dialogs start in: the current setup's folder, otherwise the "setups" folder next to the EXE.
+    /// Puts a file at the top of File > Open recent.
+    /// </summary>
+    private void RememberRecentFile(string filePath)
+    {
+        preferences.AddRecentFile(filePath);
+        preferences.Save();
+        RebuildRecentFilesMenu();
+    }
+
+    /// <summary>
+    /// Fills File > Open recent: one item per file ("1  ssis.json" with the full path as tooltip),
+    /// then "Clear list".
+    /// </summary>
+    private void RebuildRecentFilesMenu()
+    {
+        RecentFilesMenuItem.Items.Clear();
+
+        for (int recentIndex = 0; recentIndex < preferences.RecentFiles.Count; recentIndex++)
+        {
+            string recentFilePath = preferences.RecentFiles[recentIndex];
+            var recentFileMenuItem = new MenuItem
+            {
+                // The underscore makes 1-8 keyboard shortcuts inside the menu; file name underscores are doubled.
+                Header = $"_{recentIndex + 1}  {Path.GetFileName(recentFilePath).Replace("_", "__")}",
+                ToolTip = recentFilePath,
+                Tag = recentFilePath,
+            };
+            recentFileMenuItem.Click += RecentFileMenuItem_Click;
+            RecentFilesMenuItem.Items.Add(recentFileMenuItem);
+        }
+
+        if (preferences.RecentFiles.Count > 0)
+        {
+            RecentFilesMenuItem.Items.Add(new Separator());
+        }
+
+        var clearMenuItem = new MenuItem { Header = "Clear list", IsEnabled = preferences.RecentFiles.Count > 0 };
+        clearMenuItem.Click += ClearRecentFilesMenuItem_Click;
+        RecentFilesMenuItem.Items.Add(clearMenuItem);
+    }
+
+    /// <summary>
+    /// Folder the file dialogs start in: the current setup's folder, otherwise the EXE's folder.
     /// </summary>
     private string GetDialogFolder()
     {
         string? currentFolder = currentSetupFilePath is null ? null : Path.GetDirectoryName(currentSetupFilePath);
-        if (currentFolder is not null && Directory.Exists(currentFolder))
-        {
-            return currentFolder;
-        }
-
-        try
-        {
-            Directory.CreateDirectory(SetupFile.DefaultFolder);
-        }
-        catch (Exception)
-        {
-            // Not fatal: the dialog just starts somewhere else.
-        }
-
-        return SetupFile.DefaultFolder;
+        return currentFolder is not null && Directory.Exists(currentFolder) ? currentFolder : AppContext.BaseDirectory;
     }
 
     /// <summary>

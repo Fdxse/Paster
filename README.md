@@ -8,7 +8,7 @@ buttons that copy the finished text to the clipboard.
 
 Every merge to `main` builds `Paster.exe` (one self-contained file, no .NET install needed) and
 publishes it as a zip under **Releases**. Unzip and run it. On first start a `config.json` with
-example values is created next to the EXE; everything you type is saved there automatically.
+example values is created next to the EXE.
 
 Windows SmartScreen may warn about an unknown publisher the first time, because the EXE is not code-signed.
 Click "More info" and then "Run anyway" (or right-click the zip, Properties, tick "Unblock" before unzipping).
@@ -24,12 +24,16 @@ Tick **Always on top** in the top bar to keep Paster above other windows. This i
 
 ## Setup files
 
-The editors are always kept in `config.json`, so nothing is lost when you close Paster.
-To keep several setups (SSIS, dbt, ...), save them as separate JSON files:
+Each setup is **one JSON file** holding the table list, variables, joiners and buttons, so you can copy it
+anywhere (or to a colleague) and open it again. Use the **File** menu:
 
-- **Open...** (Ctrl+O) loads a setup file into the editors.
-- **Save** (Ctrl+S) writes to the current setup file; **Save as...** (Ctrl+Shift+S) picks a new one.
-- The dialogs start in a `setups` folder next to the EXE. The title bar shows the current file, with `*` for unsaved changes.
+- **New** (Ctrl+N), **Open...** (Ctrl+O), **Open recent**, **Save** (Ctrl+S), **Save as...** (Ctrl+Shift+S).
+- You can also drag a `.json` file onto the window, or onto `Paster.exe`.
+- The title bar shows the current file, with `*` when there are unsaved changes. Paster asks before throwing changes away.
+- On start Paster opens the file you used last. The very first time it creates `config.json` next to the EXE with an example setup.
+
+Mode, "Always on top" and the recent files list are remembered per computer (in the registry under
+`HKEY_CURRENT_USER\Software\Paster`), so they never end up in your setup files.
 
 ## Action log
 
