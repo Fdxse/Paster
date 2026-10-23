@@ -108,6 +108,10 @@ public partial class MainWindow : Window
             ActionModeRadioButton.IsChecked = startInActionMode;
             SetupModeRadioButton.IsChecked = !startInActionMode;
             ApplyMode(startInActionMode);
+
+            // Restore "Always on top" from the last session.
+            AlwaysOnTopCheckBox.IsChecked = loadedConfig.AlwaysOnTop;
+            Topmost = loadedConfig.AlwaysOnTop;
         }
         finally
         {
@@ -129,6 +133,7 @@ public partial class MainWindow : Window
             Joiners = SplitEditorLines(JoinersTextBox.Text),
             Buttons = SplitEditorLines(ButtonsTextBox.Text),
             Mode = ActionModeRadioButton.IsChecked == true ? PasterConfig.ActionModeName : PasterConfig.SetupModeName,
+            AlwaysOnTop = AlwaysOnTopCheckBox.IsChecked == true,
         };
 
         try
@@ -491,6 +496,20 @@ public partial class MainWindow : Window
         ApplyMode(isActionMode: ActionModeRadioButton.IsChecked == true);
 
         // The mode is remembered in config.json, so save it like any other change.
+        if (!isLoadingConfig)
+        {
+            saveTimer.Stop();
+            saveTimer.Start();
+        }
+    }
+
+    /// <summary>
+    /// The "Always on top" switch was turned on or off: apply it to the window and save it.
+    /// </summary>
+    private void AlwaysOnTopCheckBox_Changed(object sender, RoutedEventArgs eventArgs)
+    {
+        Topmost = AlwaysOnTopCheckBox.IsChecked == true;
+
         if (!isLoadingConfig)
         {
             saveTimer.Stop();

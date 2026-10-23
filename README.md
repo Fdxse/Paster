@@ -10,12 +10,17 @@ Every merge to `main` builds `Paster.exe` (one self-contained file, no .NET inst
 publishes it as a zip under **Releases**. Unzip and run it. On first start a `config.json` with
 example values is created next to the EXE; everything you type is saved there automatically.
 
+Windows SmartScreen may warn about an unknown publisher the first time, because the EXE is not code-signed.
+Click "More info" and then "Run anyway" (or right-click the zip, Properties, tick "Unblock" before unzipping).
+
 ## Modes
 
 - **Setup**: the four editors are shown on the right. The buttons update as you type, so they work as a live preview.
 - **Action**: the editors are hidden; just pick a table and click buttons.
 
 The app starts in the mode it was closed in.
+
+Tick **Always on top** in the top bar to keep Paster above other windows. This is remembered too.
 
 ## Buttons
 

@@ -15,6 +15,9 @@ public sealed class PasterConfig
     /// <summary>The mode the app was last in ("setup" or "action"). The app starts in this mode.</summary>
     public string Mode { get; set; } = SetupModeName;
 
+    /// <summary>True if the window should stay above all other windows.</summary>
+    public bool AlwaysOnTop { get; set; }
+
     /// <summary>Table lines, e.g. "DBTable" or "DBTable; schema=stg; prefix=Fact".</summary>
     public List<string> Tables { get; set; } = new();
 

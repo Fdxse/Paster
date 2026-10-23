@@ -88,6 +88,11 @@
         <!-- Top bar -->
         <Border DockPanel.Dock="Top" Background="#FFF0F0F0" BorderBrush="#FFD0D0D0" BorderThickness="0,0,0,1" Padding="8,6">
             <DockPanel LastChildFill="True">
+                <!-- Keeps the window above all other windows. Remembered in config.json. -->
+                <CheckBox x:Name="AlwaysOnTopCheckBox" DockPanel.Dock="Right" Content="Always on top"
+                          VerticalAlignment="Center" Margin="0,0,12,0"
+                          Checked="AlwaysOnTopCheckBox_Changed" Unchecked="AlwaysOnTopCheckBox_Changed"
+                          ToolTip="Keep Paster above other windows so it doesn't get hidden" />
                 <!-- Mode switch: Setup shows the editors, Action shows only the tables and buttons. -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <RadioButton x:Name="SetupModeRadioButton" GroupName="Mode" Content="Setup" Padding="14,3"
