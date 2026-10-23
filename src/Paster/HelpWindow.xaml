@@ -37,14 +37,30 @@
             <Paragraph Style="{StaticResource CodeExample}">
                 DBTable<LineBreak />Customer; schema=stg<LineBreak />SalesOrder; prefix=Fact; suffix=
             </Paragraph>
+            <Paragraph>With layers (see below), layers=... limits a table to some layers: SalesOrder; layers=stg,wrk</Paragraph>
 
-            <Paragraph Style="{StaticResource SectionHeading}">2. Global variables</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">2. Layers</Paragraph>
+            <Paragraph>
+                Optional. If every table has to go through the same layers (stg, wrk, dwh...), list them here in order.
+                Each table then becomes one step per layer, shown as "DBTable · wrk" in the list on the left.
+                Variables after a ';' only apply in that layer, so the schema (or a prefix) can differ per layer.
+                The layer name is available as {layer}. Leave the editor empty to work with plain tables.
+            </Paragraph>
+            <Paragraph Style="{StaticResource CodeExample}">
+                stg; schema=stg<LineBreak />wrk; schema=wrk<LineBreak />dwh; schema=dwh; prefix=Dim_
+            </Paragraph>
+            <Paragraph>
+                Order (top bar) picks how the steps are listed: By layer (every table in stg, then every table in wrk...)
+                or By table (DBTable through stg, wrk, dwh, then the next table). Switching keeps everything you already copied.
+            </Paragraph>
+
+            <Paragraph Style="{StaticResource SectionHeading}">3. Global variables</Paragraph>
             <Paragraph>One name=value per line. Used by every table unless a table line overrides it.</Paragraph>
             <Paragraph Style="{StaticResource CodeExample}">
                 prefix=Dim<LineBreak />schema=wrk
             </Paragraph>
 
-            <Paragraph Style="{StaticResource SectionHeading}">3. Joiners</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">4. Joiners</Paragraph>
             <Paragraph>
                 New variables built from other variables, one name=template per line. A joiner can use other joiners.
                 If two joiners use each other in a loop, the field turns red.
@@ -53,10 +69,14 @@
                 fulltable={prefix}_{table}{suffix}<LineBreak />fullname=[{database}].[{schema}].[{fulltable}]
             </Paragraph>
 
-            <Paragraph Style="{StaticResource SectionHeading}">4. Buttons</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">5. Buttons</Paragraph>
             <Paragraph>One template per line. Every line becomes a button for the selected table.</Paragraph>
             <Paragraph Style="{StaticResource CodeExample}">
                 Begin work on {table}<LineBreak />TRUNCATE TABLE [{schema}].[{fulltable}];
+            </Paragraph>
+            <Paragraph>With layers, start a line with @ and layer names to show that button in those layers only:</Paragraph>
+            <Paragraph Style="{StaticResource CodeExample}">
+                @stg Import {table} with SSIS<LineBreak />@wrk,dwh EXEC [{schema}].[Load_{table}];
             </Paragraph>
             <Paragraph>
                 For a button that copies several lines (a whole SQL block), start with a line holding &lt;&lt;&lt; and a label,
@@ -67,47 +87,48 @@
                 &lt;&lt;&lt; Reload {table}<LineBreak />TRUNCATE TABLE [{schema}].[{fulltable}];<LineBreak />INSERT INTO [{schema}].[{fulltable}]<LineBreak />SELECT * FROM [stg].[{table}];<LineBreak />&gt;&gt;&gt;
             </Paragraph>
 
-            <Paragraph Style="{StaticResource SectionHeading}">5. Tokens and transforms</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">6. Tokens and transforms</Paragraph>
             <List MarkerStyle="Disc">
                 <ListItem><Paragraph>{name} inserts a variable or joiner.</Paragraph></ListItem>
                 <ListItem><Paragraph>{name:upper} applies a transform. Chain them: {table:snake:upper}.</Paragraph></ListItem>
                 <ListItem><Paragraph>Transforms: upper, lower, trim, pascal (DbTable), camel (dbTable), snake (db_table), kebab (db-table), title (Db Table).</Paragraph></ListItem>
                 <ListItem><Paragraph>{{ and }} give a literal { or }. Square brackets are plain text, so SQL like [{schema}] just works.</Paragraph></ListItem>
-                <ListItem><Paragraph>Lookup order: the table line's override, then {table}, then global variables, then joiners.</Paragraph></ListItem>
-                <ListItem><Paragraph>Lines starting with // are comments in all four editors.</Paragraph></ListItem>
+                <ListItem><Paragraph>Lookup order: the table line's override, then the layer's variables, then {table} and {layer}, then global variables, then joiners.</Paragraph></ListItem>
+                <ListItem><Paragraph>Lines starting with // are comments in all five editors.</Paragraph></ListItem>
             </List>
 
-            <Paragraph Style="{StaticResource SectionHeading}">6. Soft errors</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">7. Soft errors</Paragraph>
             <Paragraph>
                 Nothing is ever blocked. A field with a problem turns light red and the error is listed under it.
                 Table rows and buttons with problems are light red too; hover over them to see why.
             </Paragraph>
 
-            <Paragraph Style="{StaticResource SectionHeading}">7. Setup and Action mode</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">8. Setup and Action mode</Paragraph>
             <List MarkerStyle="Disc">
-                <ListItem><Paragraph><Bold>Setup</Bold> shows the four editors. The buttons update as you type, so they work as a live preview.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Setup</Bold> shows the five editors. The buttons update as you type, so they work as a live preview.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Action</Bold> hides the editors and shows the action log. Use it when you are working through the tables.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Always on top</Bold> keeps Paster above other windows.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>View > Action buttons</Bold> makes the buttons bigger in Action mode: Normal, Large, Extra large, or Fill the window (the buttons share the whole height). The choice is saved in the setup file.</Paragraph></ListItem>
             </List>
 
-            <Paragraph Style="{StaticResource SectionHeading}">8. Using the buttons</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">9. Using the buttons</Paragraph>
             <List MarkerStyle="Disc">
                 <ListItem><Paragraph><Bold>Click</Bold> copies the text and greys the button out.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Ctrl+click</Bold> a greyed-out button to make it clickable again.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Hover</Bold> over a button to see the full text it will copy.</Paragraph></ListItem>
-                <ListItem><Paragraph><Bold>Reset table</Bold> makes every button for the selected table clickable again; <Bold>Reset all</Bold> does it for every table.</Paragraph></ListItem>
-                <ListItem><Paragraph>The table list shows how many buttons you have copied per table, e.g. 2/5. The progress bar above the buttons shows the total over all tables.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Reset table</Bold> (Reset step with layers) makes every button in the selected row clickable again; <Bold>Reset all</Bold> does it everywhere.</Paragraph></ListItem>
+                <ListItem><Paragraph>The list on the left shows how many buttons you have copied per row, e.g. 2/5, and greys out a row with a ✓ when it is done. The progress bar above the buttons shows the total.</Paragraph></ListItem>
+                <ListItem><Paragraph>In Action mode, copying the last button of a row jumps to the next row that still has buttons left.</Paragraph></ListItem>
             </List>
 
-            <Paragraph Style="{StaticResource SectionHeading}">9. Action log</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">10. Action log</Paragraph>
             <Paragraph>
-                In Action mode every copy, re-enable and reset is listed at the bottom with time and table, and written to
+                In Action mode every copy, re-enable, reset and finished step is listed at the bottom with time and table (· layer), and written to
                 logs\paster-YYYY-MM-DD.log next to Paster.exe. Export... saves the list to a tab-separated text file
                 (opens in Excel). Clear only empties the list on screen.
             </Paragraph>
 
-            <Paragraph Style="{StaticResource SectionHeading}">10. Files</Paragraph>
+            <Paragraph Style="{StaticResource SectionHeading}">11. Files</Paragraph>
             <List MarkerStyle="Disc">
                 <ListItem><Paragraph>Each setup is one JSON file. Use File: New (Ctrl+N), Open (Ctrl+O), Open recent, Save (Ctrl+S), Save as (Ctrl+Shift+S).</Paragraph></ListItem>
                 <ListItem><Paragraph>A * in the title bar means unsaved changes. Paster asks before throwing them away.</Paragraph></ListItem>

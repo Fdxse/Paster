@@ -19,7 +19,7 @@ Click "More info" and then "Run anyway" (or right-click the zip, Properties, tic
 
 ## Modes
 
-- **Setup**: the four editors are shown on the right. The buttons update as you type, so they work as a live preview.
+- **Setup**: the five editors are shown on the right. The buttons update as you type, so they work as a live preview.
 - **Action**: the editors are hidden; just pick a table and click buttons.
 
 The app starts in the mode it was closed in.
@@ -38,7 +38,7 @@ also type exact numbers:
 
 ## Setup files
 
-Each setup is **one JSON file** holding the table list, variables, joiners and buttons, so you can copy it
+Each setup is **one JSON file** holding the table list, layers, variables, joiners and buttons, so you can copy it
 anywhere (or to a colleague) and open it again. Use the **File** menu:
 
 - **New** (Ctrl+N), **Open...** (Ctrl+O), **Open recent**, **Save** (Ctrl+S), **Save as...** (Ctrl+Shift+S).
@@ -51,7 +51,7 @@ Mode, "Always on top" and the recent files list are remembered per computer (in 
 
 ## Action log
 
-In Action mode a log panel at the bottom records every copy, re-enable and reset with time and table.
+In Action mode a log panel at the bottom records every copy, re-enable, reset and finished step with time and table (· layer).
 The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next to the EXE (tab-separated).
 **Export...** saves the list to a tab-separated text file; **Clear** empties the list in the window only;
 **Open log folder** shows the files.
@@ -61,19 +61,46 @@ The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next t
 - **Click**: copies the text and greys the button out.
 - **Ctrl+click** a greyed-out button: enables it again so you can copy it once more.
 - **Hover** a button to see the full text it will copy.
-- **Reset table** enables every button for the selected table; **Reset all** does it for every table.
-- The table list shows `copied/total` per table, and the progress bar above the buttons shows the total over all tables.
+- **Reset table** (**Reset step** with layers) enables every button in the selected row; **Reset all** does it everywhere.
+- The list on the left shows `copied/total` per row and greys a row out with a ✓ when it is done; the progress bar above the buttons shows the total.
+- In **Action mode**, copying the last button of a row jumps to the next row that still has buttons left.
 
-## The four editors
+## The five editors
 
 Blank lines and lines starting with `//` are ignored everywhere.
 
 | Editor | Line format | Example |
 |---|---|---|
 | Table list | `Name` or `Name; var=value; var=value` | `Customer; schema=stg; prefix=Fact` |
+| Layers (optional) | `name` or `name; var=value; var=value` | `dwh; schema=dwh; prefix=Dim_` |
 | Global variables | `name=value` | `schema=wrk` |
 | Joiners | `name=template` | `fulltable={prefix}_{table}{suffix}` |
-| Buttons | any text with `{tokens}` | `TRUNCATE TABLE [{schema}].[{fulltable}];` |
+| Buttons | any text with `{tokens}`, optionally starting with `@layer,layer` | `TRUNCATE TABLE [{schema}].[{fulltable}];` |
+
+### Layers
+
+When every table goes through the same layers (stg, wrk, dwh...), list them in the **Layers** editor, in order.
+Each table then becomes one step per layer, shown as `DBTable · wrk` on the left with its own buttons and progress.
+
+- Variables after a `;` on a layer line only apply in that layer, so `{schema}` can be `stg` in one layer and `dwh` in the next.
+- `{layer}` holds the layer name.
+- `layers=stg,wrk` on a table line limits that table to those layers.
+- A button line starting with `@stg` (or `@stg,wrk`) only shows in those layers. This works in front of a `<<<` block too.
+- **Order** in the top bar lists the steps **By layer** (every table in stg, then every table in wrk...) or
+  **By table** (DBTable through every layer, then the next table). Switching keeps what you already copied.
+  The choice is saved in the setup file as `"walkOrder": "layer"` or `"table"`.
+
+Leave the Layers editor empty to work with plain tables like before.
+
+```
+Layers:   stg; schema=stg
+          wrk; schema=wrk
+          dwh; schema=dwh; prefix=Dim_
+Tables:   DBTable
+          SalesOrder; layers=stg,wrk
+Buttons:  @stg Import {table} with SSIS
+          TRUNCATE TABLE [{schema}].[{prefix}{table}];
+```
 
 ### Multi-line buttons
 
@@ -96,7 +123,7 @@ SELECT * FROM [stg].[{table}];
   Transforms: `upper`, `lower`, `trim`, `pascal`, `camel`, `snake`, `kebab`, `title`.
 - `{{` and `}}`: a literal `{` or `}`. Square brackets are plain text, so SQL like `[{schema}].[{table}]` just works.
 
-A name is looked up in this order: the override on the table line, `{table}`, the global variables, then the joiners.
+A name is looked up in this order: the override on the table line, the layer's variables, `{table}` and `{layer}`, the global variables, then the joiners.
 Joiners can use other joiners; a loop (`a` uses `b` uses `a`) is reported as an error.
 
 ### Soft errors

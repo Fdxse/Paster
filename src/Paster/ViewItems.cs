@@ -27,14 +27,18 @@ public abstract class ObservableObject : INotifyPropertyChanged
 }
 
 /// <summary>
-/// One row in the table list on the left.
+/// One row in the list on the left: a table, or a table in a layer ("DBTable · wrk") when layers are used.
 /// </summary>
-public sealed class TableListItem : ObservableObject
+public sealed class StepListItem : ObservableObject
 {
     private string progressText = string.Empty;
+    private bool isComplete;
 
-    /// <summary>The table name as shown in the list.</summary>
-    public string TableName { get; init; } = string.Empty;
+    /// <summary>Identifies the step (see <see cref="Engine.WorkStep.Key"/>), used to keep the selection.</summary>
+    public string StepKey { get; init; } = string.Empty;
+
+    /// <summary>The name as shown in the list, e.g. "DBTable · wrk".</summary>
+    public string StepName { get; init; } = string.Empty;
 
     /// <summary>True if the table line has a parse error (row is shown light red).</summary>
     public bool HasError { get; init; }
@@ -42,11 +46,18 @@ public sealed class TableListItem : ObservableObject
     /// <summary>Tooltip text: the errors on this line, or null when there are none.</summary>
     public string? ErrorText { get; init; }
 
-    /// <summary>"2/5": how many of the buttons have been copied for this table.</summary>
+    /// <summary>"2/5": how many of the buttons have been copied for this step.</summary>
     public string ProgressText
     {
         get => progressText;
         set => SetProperty(ref progressText, value);
+    }
+
+    /// <summary>True when every button of the step has been copied (the row is greyed out).</summary>
+    public bool IsComplete
+    {
+        get => isComplete;
+        set => SetProperty(ref isComplete, value);
     }
 }
 

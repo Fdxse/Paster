@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using Paster.Configuration;
 using Paster.Engine;
@@ -12,20 +13,29 @@ using Paster.Engine;
 namespace Paster;
 
 /// <summary>
-/// The main (and only) window: table list on the left, clipboard buttons in the middle,
+/// The main (and only) window: tables (or table · layer steps) on the left, clipboard buttons in the middle,
 /// setup editors on the right (only in Setup mode). Every edit re-parses everything and refreshes the buttons at once.
 /// </summary>
 public partial class MainWindow : Window
 {
     /// <summary>
-    /// Which buttons have been copied, per table. The key is the table name and the set holds the
-    /// rendered texts that were copied. Using the rendered text means a button becomes clickable again
-    /// by itself if a variable change makes it produce different text.
+    /// Which buttons have been copied, per step. The key is <see cref="WorkStep.Key"/> (table, plus layer
+    /// when layers are used) and the set holds the rendered texts that were copied. Using the rendered text
+    /// means a button becomes clickable again by itself if a variable change makes it produce different text.
     /// </summary>
-    private readonly Dictionary<string, HashSet<string>> usedTextsByTable = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> usedTextsByStep = new(StringComparer.Ordinal);
 
-    /// <summary>The most recent parse of the four editors.</summary>
+    /// <summary>The most recent parse of the five editors.</summary>
     private ParsedSetup currentSetup = new();
+
+    /// <summary>The rows of the list on the left, in walking order (one per table, or per table · layer).</summary>
+    private List<WorkStep> currentSteps = new();
+
+    /// <summary>Walk order of the current setup (only matters when it has layers).</summary>
+    private WalkOrder walkOrder = WalkOrder.ByLayer;
+
+    /// <summary>Short pause before Action mode jumps to the next step, so the last copied button is seen greying out.</summary>
+    private static readonly TimeSpan AutoAdvanceDelay = TimeSpan.FromMilliseconds(350);
 
     /// <summary>True while the editors are being filled from a file, so that doesn't count as an edit.</summary>
     private bool isLoadingSetup;
@@ -165,7 +175,7 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Any edit in any of the four editors: refresh everything right away and mark the setup as changed.
+    /// Any edit in any of the five editors: refresh everything right away and mark the setup as changed.
     /// </summary>
     private void SetupEditor_TextChanged(object sender, TextChangedEventArgs eventArgs)
     {
@@ -184,25 +194,33 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Re-parses the editors, marks soft errors, rebuilds the table list (keeping the selection)
-    /// and rebuilds the buttons for the selected table.
+    /// Re-parses the editors, marks soft errors, rebuilds the list on the left (keeping the selection)
+    /// and rebuilds the buttons for the selected step.
     /// </summary>
     private void RefreshEverything()
     {
         // TextChanged can fire during InitializeComponent before all controls exist.
-        if (TablesTextBox is null || VariablesTextBox is null || JoinersTextBox is null || ButtonsTextBox is null)
+        if (TablesTextBox is null || LayersTextBox is null || VariablesTextBox is null || JoinersTextBox is null || ButtonsTextBox is null)
         {
             return;
         }
 
-        currentSetup = SetupParser.Parse(TablesTextBox.Text, VariablesTextBox.Text, JoinersTextBox.Text, ButtonsTextBox.Text);
+        currentSetup = SetupParser.Parse(TablesTextBox.Text, LayersTextBox.Text, VariablesTextBox.Text, JoinersTextBox.Text, ButtonsTextBox.Text);
+        currentSteps = WorkPlanner.BuildSteps(currentSetup, walkOrder);
 
         ShowSoftErrors(TablesTextBox, TablesErrorText, currentSetup.TableErrors);
+        ShowSoftErrors(LayersTextBox, LayersErrorText, currentSetup.LayerErrors);
         ShowSoftErrors(VariablesTextBox, VariablesErrorText, currentSetup.VariableErrors);
         ShowSoftErrors(JoinersTextBox, JoinersErrorText, currentSetup.JoinerErrors);
         ShowSoftErrors(ButtonsTextBox, ButtonsErrorText, currentSetup.ButtonErrors);
 
-        RebuildTableList();
+        // The walk order switch and the "step" wording only make sense with layers.
+        bool usesLayers = currentSetup.Layers.Count > 0;
+        WalkOrderPanel.Visibility = usesLayers ? Visibility.Visible : Visibility.Collapsed;
+        StepListHeader.Text = usesLayers ? "Steps   (table · layer)" : "Tables";
+        ResetStepButton.Content = usesLayers ? "Reset step" : "Reset table";
+
+        RebuildStepList();
         RebuildButtons();
         UpdateOverallProgress();
     }
@@ -229,53 +247,64 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Rebuilds the table list from the parsed setup. The selection is kept by position,
-    /// so typing in a table name does not make the selection jump.
+    /// Rebuilds the list on the left from <see cref="currentSteps"/>. The selection follows the same
+    /// step (so switching the walk order keeps your place); if that step is gone, the selection is kept
+    /// by position, so typing in a table name does not make the selection jump.
     /// </summary>
-    private void RebuildTableList()
+    private void RebuildStepList()
     {
-        int previouslySelectedIndex = TableListBox.SelectedIndex;
+        int previouslySelectedIndex = StepListBox.SelectedIndex;
+        string? previouslySelectedKey = (StepListBox.SelectedItem as StepListItem)?.StepKey;
 
-        var tableListItems = new List<TableListItem>();
-        foreach (TableEntry tableEntry in currentSetup.Tables)
+        var stepListItems = new List<StepListItem>();
+        foreach (WorkStep workStep in currentSteps)
         {
-            tableListItems.Add(new TableListItem
+            TableEntry tableEntry = workStep.Table;
+            stepListItems.Add(new StepListItem
             {
-                TableName = tableEntry.Name.Length > 0 ? tableEntry.Name : "(no name)",
+                StepKey = workStep.Key,
+                StepName = workStep.DisplayName,
                 HasError = tableEntry.Errors.Count > 0,
                 ErrorText = tableEntry.Errors.Count > 0 ? string.Join(Environment.NewLine, tableEntry.Errors) : null,
-                ProgressText = BuildProgressText(tableEntry),
+                ProgressText = BuildProgressText(workStep),
+                IsComplete = IsStepComplete(workStep),
             });
         }
 
-        TableListBox.ItemsSource = tableListItems;
+        StepListBox.ItemsSource = stepListItems;
 
-        if (tableListItems.Count > 0)
+        if (stepListItems.Count == 0)
         {
-            TableListBox.SelectedIndex = Math.Clamp(previouslySelectedIndex, 0, tableListItems.Count - 1);
+            return;
         }
+
+        int sameStepIndex = stepListItems.FindIndex(stepListItem => stepListItem.StepKey == previouslySelectedKey);
+        StepListBox.SelectedIndex = sameStepIndex >= 0
+            ? sameStepIndex
+            : Math.Clamp(previouslySelectedIndex, 0, stepListItems.Count - 1);
+        StepListBox.ScrollIntoView(StepListBox.SelectedItem);
     }
 
     /// <summary>
-    /// Builds the buttons for the selected table.
+    /// Builds the buttons for the selected step.
     /// </summary>
     private void RebuildButtons()
     {
-        TableEntry? selectedTable = GetSelectedTable();
-        if (selectedTable is null)
+        WorkStep? selectedStep = GetSelectedStep();
+        if (selectedStep is null)
         {
             SelectedTableHeader.Text = "Buttons";
             ButtonItemsControl.ItemsSource = null;
             return;
         }
 
-        SelectedTableHeader.Text = $"Buttons for {selectedTable.Name}";
+        SelectedTableHeader.Text = $"Buttons for {selectedStep.DisplayName}";
 
-        HashSet<string> usedTexts = GetUsedTexts(selectedTable.Name);
-        var templateRenderer = new TemplateRenderer(currentSetup, selectedTable);
+        HashSet<string> usedTexts = GetUsedTexts(selectedStep);
+        var templateRenderer = new TemplateRenderer(currentSetup, selectedStep);
         var buttonItems = new List<ClipboardButtonItem>();
 
-        foreach (ButtonTemplate buttonTemplate in currentSetup.ButtonTemplates)
+        foreach (ButtonTemplate buttonTemplate in WorkPlanner.ButtonsFor(currentSetup, selectedStep))
         {
             RenderResult renderResult = templateRenderer.Render(buttonTemplate.Template);
 
@@ -304,20 +333,20 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The parsed table that matches the list selection, or null when nothing is selected.
+    /// The step that matches the list selection, or null when nothing is selected.
     /// </summary>
-    private TableEntry? GetSelectedTable()
+    private WorkStep? GetSelectedStep()
     {
-        int selectedIndex = TableListBox.SelectedIndex;
-        if (selectedIndex < 0 || selectedIndex >= currentSetup.Tables.Count)
+        int selectedIndex = StepListBox.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= currentSteps.Count)
         {
             return null;
         }
 
-        return currentSetup.Tables[selectedIndex];
+        return currentSteps[selectedIndex];
     }
 
-    private void TableListBox_SelectionChanged(object sender, SelectionChangedEventArgs eventArgs)
+    private void StepListBox_SelectionChanged(object sender, SelectionChangedEventArgs eventArgs)
     {
         RebuildButtons();
     }
@@ -338,13 +367,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        TableEntry? selectedTable = GetSelectedTable();
-        if (selectedTable is null)
+        WorkStep? selectedStep = GetSelectedStep();
+        if (selectedStep is null)
         {
             return;
         }
 
-        HashSet<string> usedTexts = GetUsedTexts(selectedTable.Name);
+        HashSet<string> usedTexts = GetUsedTexts(selectedStep);
         bool isControlHeld = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
 
         if (buttonItem.IsUsed)
@@ -353,10 +382,10 @@ public partial class MainWindow : Window
             {
                 buttonItem.IsUsed = false;
                 usedTexts.Remove(buttonItem.RenderedText);
-                UpdateSelectedTableProgress(selectedTable);
+                UpdateSelectedStepProgress(selectedStep);
                 UpdateOverallProgress();
                 ShowStatus("Button enabled again.");
-                RecordAction("Re-enabled", selectedTable.Name, buttonItem.RenderedText);
+                RecordAction("Re-enabled", selectedStep.DisplayName, buttonItem.RenderedText);
             }
             else
             {
@@ -374,29 +403,71 @@ public partial class MainWindow : Window
 
         buttonItem.IsUsed = true;
         usedTexts.Add(buttonItem.RenderedText);
-        UpdateSelectedTableProgress(selectedTable);
+        UpdateSelectedStepProgress(selectedStep);
         UpdateOverallProgress();
         ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
-        RecordAction("Copied", selectedTable.Name, buttonItem.RenderedText);
+        RecordAction("Copied", selectedStep.DisplayName, buttonItem.RenderedText);
+
+        // In Action mode, the last button of a step moves on to the next step by itself.
+        if (ActionModeRadioButton.IsChecked == true && IsStepComplete(selectedStep))
+        {
+            RecordAction("Done", selectedStep.DisplayName, string.Empty);
+            ScheduleAdvanceFrom(selectedStep);
+        }
     }
 
     /// <summary>
-    /// Makes every button for the selected table clickable again.
+    /// After a short pause, selects the next step that still has buttons left (wrapping around to the top).
+    /// Nothing happens if another step was picked or a button was re-enabled in the meantime.
     /// </summary>
-    private void ResetTableButton_Click(object sender, RoutedEventArgs eventArgs)
+    private void ScheduleAdvanceFrom(WorkStep finishedStep)
     {
-        TableEntry? selectedTable = GetSelectedTable();
-        if (selectedTable is null)
+        var advanceTimer = new DispatcherTimer { Interval = AutoAdvanceDelay };
+        advanceTimer.Tick += (_, _) =>
+        {
+            advanceTimer.Stop();
+
+            // The editors may have been changed meanwhile, so look the step up again by its key.
+            int finishedIndex = currentSteps.FindIndex(workStep => workStep.Key == finishedStep.Key);
+            if (finishedIndex < 0 || StepListBox.SelectedIndex != finishedIndex || !IsStepComplete(currentSteps[finishedIndex]))
+            {
+                return;
+            }
+
+            for (int offset = 1; offset < currentSteps.Count; offset++)
+            {
+                int candidateIndex = (finishedIndex + offset) % currentSteps.Count;
+                if (!IsStepComplete(currentSteps[candidateIndex]))
+                {
+                    StepListBox.SelectedIndex = candidateIndex;
+                    StepListBox.ScrollIntoView(StepListBox.SelectedItem);
+                    ShowStatus($"{finishedStep.DisplayName} done. Next: {currentSteps[candidateIndex].DisplayName}");
+                    return;
+                }
+            }
+
+            ShowStatus("Everything is done! Reset all to start over.");
+        };
+        advanceTimer.Start();
+    }
+
+    /// <summary>
+    /// Makes every button for the selected step clickable again.
+    /// </summary>
+    private void ResetStepButton_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        WorkStep? selectedStep = GetSelectedStep();
+        if (selectedStep is null)
         {
             return;
         }
 
-        usedTextsByTable.Remove(selectedTable.Name);
+        usedTextsByStep.Remove(selectedStep.Key);
         RebuildButtons();
-        UpdateSelectedTableProgress(selectedTable);
+        UpdateSelectedStepProgress(selectedStep);
         UpdateOverallProgress();
-        ShowStatus($"All buttons for {selectedTable.Name} are enabled again.");
-        RecordAction("Reset", selectedTable.Name, string.Empty);
+        ShowStatus($"All buttons for {selectedStep.DisplayName} are enabled again.");
+        RecordAction("Reset", selectedStep.DisplayName, string.Empty);
     }
 
     /// <summary>
@@ -435,45 +506,61 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// The set of copied texts for a table, created on first use.
+    /// The set of copied texts for a step, created on first use.
     /// </summary>
-    private HashSet<string> GetUsedTexts(string tableName)
+    private HashSet<string> GetUsedTexts(WorkStep workStep)
     {
-        if (!usedTextsByTable.TryGetValue(tableName, out HashSet<string>? usedTexts))
+        if (!usedTextsByStep.TryGetValue(workStep.Key, out HashSet<string>? usedTexts))
         {
             usedTexts = new HashSet<string>(StringComparer.Ordinal);
-            usedTextsByTable[tableName] = usedTexts;
+            usedTextsByStep[workStep.Key] = usedTexts;
         }
 
         return usedTexts;
     }
 
     /// <summary>
-    /// "2/5" for a table: copied buttons out of all buttons. Empty when nothing is copied yet.
+    /// "2/5" for a step: copied buttons out of its buttons, with a tick when all are done. Empty when nothing is copied yet.
     /// </summary>
-    private string BuildProgressText(TableEntry tableEntry)
+    private string BuildProgressText(WorkStep workStep)
     {
-        int usedButtonCount = CountUsedButtons(tableEntry);
-        return usedButtonCount == 0 ? string.Empty : $"{usedButtonCount}/{currentSetup.ButtonTemplates.Count}";
+        int usedButtonCount = CountUsedButtons(workStep);
+        if (usedButtonCount == 0)
+        {
+            return string.Empty;
+        }
+
+        int buttonCount = WorkPlanner.ButtonsFor(currentSetup, workStep).Count;
+        string doneMarker = usedButtonCount >= buttonCount ? " ✓" : string.Empty;
+        return $"{usedButtonCount}/{buttonCount}{doneMarker}";
     }
 
     /// <summary>
-    /// How many of a table's buttons have been copied (and not re-enabled since).
+    /// How many of a step's buttons have been copied (and not re-enabled since).
     /// </summary>
-    private int CountUsedButtons(TableEntry tableEntry)
+    private int CountUsedButtons(WorkStep workStep)
     {
-        if (!usedTextsByTable.TryGetValue(tableEntry.Name, out HashSet<string>? usedTexts) || usedTexts.Count == 0)
+        if (!usedTextsByStep.TryGetValue(workStep.Key, out HashSet<string>? usedTexts) || usedTexts.Count == 0)
         {
             return 0;
         }
 
-        var templateRenderer = new TemplateRenderer(currentSetup, tableEntry);
-        return currentSetup.ButtonTemplates
+        var templateRenderer = new TemplateRenderer(currentSetup, workStep);
+        return WorkPlanner.ButtonsFor(currentSetup, workStep)
             .Count(buttonTemplate => usedTexts.Contains(templateRenderer.Render(buttonTemplate.Template).Text));
     }
 
     /// <summary>
-    /// Updates the progress bar above the buttons: copied buttons out of all buttons, over every table.
+    /// True when every button of the step has been copied. A step without buttons counts as done,
+    /// so moving on to the next step skips it.
+    /// </summary>
+    private bool IsStepComplete(WorkStep workStep)
+    {
+        return CountUsedButtons(workStep) >= WorkPlanner.ButtonsFor(currentSetup, workStep).Count;
+    }
+
+    /// <summary>
+    /// Updates the progress bar above the buttons: copied buttons out of all buttons, over every step.
     /// </summary>
     private void UpdateOverallProgress()
     {
@@ -483,8 +570,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        int totalButtonCount = currentSetup.Tables.Count * currentSetup.ButtonTemplates.Count;
-        int usedButtonCount = currentSetup.Tables.Sum(CountUsedButtons);
+        int totalButtonCount = currentSteps.Sum(workStep => WorkPlanner.ButtonsFor(currentSetup, workStep).Count);
+        int usedButtonCount = currentSteps.Sum(CountUsedButtons);
 
         OverallProgressBar.Maximum = Math.Max(totalButtonCount, 1);
         OverallProgressBar.Value = usedButtonCount;
@@ -494,37 +581,80 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Makes every button for every table clickable again (asks first, since it can't be undone).
+    /// Makes every button everywhere clickable again (asks first, since it can't be undone).
     /// </summary>
     private void ResetAllButton_Click(object sender, RoutedEventArgs eventArgs)
     {
-        if (usedTextsByTable.Values.All(usedTexts => usedTexts.Count == 0))
+        if (usedTextsByStep.Values.All(usedTexts => usedTexts.Count == 0))
         {
             return;
         }
 
-        MessageBoxResult answer = MessageBox.Show(this, "Make every button for every table clickable again?", "Paster",
+        MessageBoxResult answer = MessageBox.Show(this, "Make every button everywhere clickable again?", "Paster",
             MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (answer != MessageBoxResult.OK)
         {
             return;
         }
 
-        usedTextsByTable.Clear();
+        usedTextsByStep.Clear();
         RefreshEverything();
-        ShowStatus("All buttons for all tables are enabled again.");
+        ShowStatus("All buttons are enabled again.");
         RecordAction("Reset all", string.Empty, string.Empty);
     }
 
     /// <summary>
-    /// Updates the "2/5" counter of the selected row without rebuilding the whole list.
+    /// Updates the "2/5" counter and the greyed-out look of the selected row without rebuilding the whole list.
     /// </summary>
-    private void UpdateSelectedTableProgress(TableEntry selectedTable)
+    private void UpdateSelectedStepProgress(WorkStep selectedStep)
     {
-        if (TableListBox.SelectedItem is TableListItem selectedListItem)
+        if (StepListBox.SelectedItem is StepListItem selectedListItem)
         {
-            selectedListItem.ProgressText = BuildProgressText(selectedTable);
+            selectedListItem.ProgressText = BuildProgressText(selectedStep);
+            selectedListItem.IsComplete = IsStepComplete(selectedStep);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Walk order (only shown when the setup has layers)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// "By layer" or "By table" was picked. The steps stay the same, only their order changes,
+    /// so everything already copied is kept and the selected step stays selected.
+    /// The choice is part of the setup, so it marks the setup as changed.
+    /// </summary>
+    private void WalkOrderRadioButton_Checked(object sender, RoutedEventArgs eventArgs)
+    {
+        // Checked can fire during InitializeComponent before everything exists.
+        if (ByTableRadioButton is null || StepListBox is null)
+        {
+            return;
+        }
+
+        WalkOrder pickedWalkOrder = ByTableRadioButton.IsChecked == true ? WalkOrder.ByTable : WalkOrder.ByLayer;
+        if (pickedWalkOrder == walkOrder)
+        {
+            return;
+        }
+
+        walkOrder = pickedWalkOrder;
+        RefreshEverything();
+
+        if (!isLoadingSetup)
+        {
+            hasUnsavedSetupChanges = true;
+            UpdateTitle();
+        }
+    }
+
+    /// <summary>
+    /// Ticks the walk order button that matches <see cref="walkOrder"/>.
+    /// </summary>
+    private void ShowWalkOrder()
+    {
+        ByLayerRadioButton.IsChecked = walkOrder == WalkOrder.ByLayer;
+        ByTableRadioButton.IsChecked = walkOrder == WalkOrder.ByTable;
     }
 
     // ------------------------------------------------------------------
@@ -959,7 +1089,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Puts a setup in the four editors and makes it the current one. Every button starts clickable again.
+    /// Puts a setup in the five editors and makes it the current one. Every button starts clickable again.
     /// </summary>
     private void ShowSetupInEditors(SetupFile setup, string? filePath)
     {
@@ -967,6 +1097,7 @@ public partial class MainWindow : Window
         try
         {
             TablesTextBox.Text = string.Join(Environment.NewLine, setup.Tables);
+            LayersTextBox.Text = string.Join(Environment.NewLine, setup.Layers);
             VariablesTextBox.Text = string.Join(Environment.NewLine, setup.Variables);
             JoinersTextBox.Text = string.Join(Environment.NewLine, setup.Joiners);
             ButtonsTextBox.Text = string.Join(Environment.NewLine, setup.Buttons);
@@ -984,12 +1115,26 @@ public partial class MainWindow : Window
         actionFontSize = setup.ActionFontSize is >= 6 and <= 120 ? setup.ActionFontSize : 18;
         ApplyButtonSizing();
 
-        usedTextsByTable.Clear();
+        // Walk order; anything other than "table" means by layer.
+        walkOrder = string.Equals(setup.WalkOrder, SetupFile.ByTableWalkOrder, StringComparison.OrdinalIgnoreCase)
+            ? WalkOrder.ByTable
+            : WalkOrder.ByLayer;
+        isLoadingSetup = true;
+        try
+        {
+            ShowWalkOrder();
+        }
+        finally
+        {
+            isLoadingSetup = false;
+        }
+
+        usedTextsByStep.Clear();
         currentSetupFilePath = filePath;
         hasUnsavedSetupChanges = false;
 
         RefreshEverything();
-        TableListBox.SelectedIndex = TableListBox.Items.Count > 0 ? 0 : -1;
+        StepListBox.SelectedIndex = StepListBox.Items.Count > 0 ? 0 : -1;
         UpdateTitle();
     }
 
@@ -1033,13 +1178,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Writes the four editors to a file and makes it the current one.
+    /// Writes the five editors to a file and makes it the current one.
     /// </summary>
     private bool WriteSetupFile(string filePath)
     {
         var setupToSave = new SetupFile
         {
             Tables = SplitEditorLines(TablesTextBox.Text),
+            Layers = SplitEditorLines(LayersTextBox.Text),
+            WalkOrder = walkOrder == WalkOrder.ByTable ? SetupFile.ByTableWalkOrder : SetupFile.ByLayerWalkOrder,
             Variables = SplitEditorLines(VariablesTextBox.Text),
             Joiners = SplitEditorLines(JoinersTextBox.Text),
             Buttons = SplitEditorLines(ButtonsTextBox.Text),

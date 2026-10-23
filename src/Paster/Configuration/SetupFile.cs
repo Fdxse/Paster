@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace Paster.Configuration;
 
 /// <summary>
-/// A Paster setup: the four editors, stored as one self-contained JSON file. Each section is a list
+/// A Paster setup: the five editors, stored as one self-contained JSON file. Each section is a list
 /// of lines exactly as they appear in the editors, so the file is easy to read and edit by hand.
 /// Copy the file anywhere and open it with File > Open (or drop it on the window).
 /// </summary>
@@ -13,6 +13,18 @@ public sealed class SetupFile
 {
     /// <summary>Table lines, e.g. "DBTable" or "DBTable; schema=stg; prefix=Fact".</summary>
     public List<string> Tables { get; set; } = new();
+
+    /// <summary>Layer lines, e.g. "stg; schema=stg". Empty means the setup does not use layers.</summary>
+    public List<string> Layers { get; set; } = new();
+
+    /// <summary>Value of <see cref="WalkOrder"/>: every table in a layer before moving to the next layer.</summary>
+    public const string ByLayerWalkOrder = "layer";
+
+    /// <summary>Value of <see cref="WalkOrder"/>: one table through every layer before moving to the next table.</summary>
+    public const string ByTableWalkOrder = "table";
+
+    /// <summary>How the steps are listed when layers are used: "layer" or "table".</summary>
+    public string WalkOrder { get; set; } = ByLayerWalkOrder;
 
     /// <summary>Global variable lines, e.g. "schema=wrk".</summary>
     public List<string> Variables { get; set; } = new();
@@ -94,6 +106,7 @@ public sealed class SetupFile
         return new SetupFile
         {
             Tables = new List<string> { "// One table per line. Override variables for a single line after a ';'." },
+            Layers = new List<string> { "// Optional: layers to walk every table through (stg, wrk, dwh...), with variables per layer after a ';'." },
             Variables = new List<string> { "// Global variables: name=value. {table} is built in." },
             Joiners = new List<string> { "// Joiners build new variables from other variables (and other joiners)." },
             Buttons = new List<string>
@@ -114,37 +127,45 @@ public sealed class SetupFile
             Tables = new List<string>
             {
                 "// One table per line. Override variables for a single line after a ';'.",
+                "// layers=... limits a table to some layers.",
                 "DBTable",
-                "Customer; schema=stg",
-                "SalesOrder; prefix=Fact; suffix=",
+                "Customer; suffix=_v2",
+                "SalesOrder; layers=stg,wrk",
+            },
+            Layers = new List<string>
+            {
+                "// Every table is worked through each layer, in this order. {layer} holds the name.",
+                "// Variables after a ';' only apply in that layer.",
+                "stg; schema=stg",
+                "wrk; schema=wrk",
+                "dwh; schema=dwh; prefix=Dim_",
             },
             Variables = new List<string>
             {
                 "// Global variables: name=value. {table} is built in.",
-                "prefix=Dim",
-                "suffix=_test",
-                "schema=wrk",
                 "database=DW",
+                "prefix=",
+                "suffix=",
             },
             Joiners = new List<string>
             {
                 "// Joiners build new variables from other variables (and other joiners).",
-                "fulltable={prefix}_{table}{suffix}",
+                "fulltable={prefix}{table}{suffix}",
                 "fullname=[{database}].[{schema}].[{fulltable}]",
             },
             Buttons = new List<string>
             {
                 "// One button per line. Transforms: upper, lower, pascal, camel, snake, kebab, title, trim.",
-                "Begin work on {table}",
+                "// Start a line with @stg (or @stg,wrk) to show it in those layers only.",
+                "Begin work on {table} in {layer}",
+                "@stg Import {table:upper} with SSIS",
                 "TRUNCATE TABLE [{schema}].[{fulltable}];",
                 "SELECT TOP 100 * FROM {fullname};",
-                "Import {table:upper} with SSIS",
-                "{table:snake}",
                 "// A multi-line button: <<< label, the lines to copy, then >>>.",
-                "<<< Reload {table}",
+                "@dwh <<< Reload {fulltable} from wrk",
                 "TRUNCATE TABLE [{schema}].[{fulltable}];",
                 "INSERT INTO [{schema}].[{fulltable}]",
-                "SELECT * FROM [stg].[{table}];",
+                "SELECT * FROM [wrk].[{table}];",
                 ">>>",
             },
         };
