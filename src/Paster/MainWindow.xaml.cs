@@ -42,6 +42,18 @@ public partial class MainWindow : Window
     /// <summary>True when the editors changed since the setup file was last opened or saved.</summary>
     private bool hasUnsavedSetupChanges;
 
+    /// <summary>Action mode button size of the current setup: "fixed" or "fill" (see <see cref="SetupFile.ActionButtonSize"/>).</summary>
+    private string actionButtonSize = SetupFile.FixedButtonSize;
+
+    /// <summary>Action mode button height in pixels when the size is "fixed".</summary>
+    private double actionButtonHeight = 60;
+
+    /// <summary>Action mode button text size.</summary>
+    private double actionFontSize = 18;
+
+    /// <summary>Button text size in Setup mode.</summary>
+    private const double SetupModeFontSize = 13;
+
     /// <summary>Mode, "Always on top" and recent files, kept per computer (see <see cref="AppPreferences"/>).</summary>
     private readonly AppPreferences preferences = AppPreferences.Load();
 
@@ -527,7 +539,83 @@ public partial class MainWindow : Window
             ActionLogPanel.Visibility = Visibility.Collapsed;
         }
 
+        ApplyButtonSizing();
         UpdateTitle();
+    }
+
+    // ------------------------------------------------------------------
+    // Action mode button size (View > Action buttons)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Sets button height, text size and layout for the current mode.
+    /// Setup mode: normal small buttons in a scrolling list.
+    /// Action mode, fixed: every button at least <see cref="actionButtonHeight"/> high, still scrolling.
+    /// Action mode, fill: no scrolling; the buttons share the available height equally.
+    /// </summary>
+    private void ApplyButtonSizing()
+    {
+        // Can be called while the window is still being built.
+        if (ButtonItemsControl is null || ButtonScrollViewer is null || ActionModeRadioButton is null)
+        {
+            return;
+        }
+
+        bool isActionMode = ActionModeRadioButton.IsChecked == true;
+        bool fillWindow = isActionMode && actionButtonSize == SetupFile.FillButtonSize;
+
+        Resources["ClipboardButtonMinHeight"] = isActionMode && !fillWindow ? actionButtonHeight : 0.0;
+        Resources["ClipboardButtonFontSize"] = isActionMode ? actionFontSize : SetupModeFontSize;
+
+        ButtonItemsControl.ItemsPanel = (ItemsPanelTemplate)FindResource(fillWindow ? "FillButtonsPanel" : "StackedButtonsPanel");
+
+        // "Disabled" (not "Hidden") makes the scroll viewer hand its real height to the panel, which "fill" needs.
+        ButtonScrollViewer.VerticalScrollBarVisibility = fillWindow ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
+
+        UpdateButtonSizeMenuChecks();
+    }
+
+    /// <summary>
+    /// View > Action buttons > Normal / Large / Extra large / Fill the window.
+    /// The choice is part of the setup, so it marks the setup as changed.
+    /// </summary>
+    private void ActionButtonSizeMenuItem_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is not MenuItem { Tag: string presetName })
+        {
+            return;
+        }
+
+        (actionButtonSize, actionButtonHeight, actionFontSize) = presetName switch
+        {
+            "normal" => (SetupFile.FixedButtonSize, 0.0, 13.0),
+            "large" => (SetupFile.FixedButtonSize, 60.0, 18.0),
+            "extralarge" => (SetupFile.FixedButtonSize, 90.0, 24.0),
+            _ => (SetupFile.FillButtonSize, actionButtonHeight, 20.0),
+        };
+
+        ApplyButtonSizing();
+
+        hasUnsavedSetupChanges = true;
+        UpdateTitle();
+
+        if (ActionModeRadioButton.IsChecked != true)
+        {
+            ShowStatus("Button size changed. It shows in Action mode.");
+        }
+    }
+
+    /// <summary>
+    /// Ticks the preset in View > Action buttons that matches the current values
+    /// (none, if the numbers were typed into the setup file by hand).
+    /// </summary>
+    private void UpdateButtonSizeMenuChecks()
+    {
+        bool isFixed = actionButtonSize == SetupFile.FixedButtonSize;
+        NormalButtonsMenuItem.IsChecked = isFixed && actionButtonHeight == 0 && actionFontSize == 13;
+        LargeButtonsMenuItem.IsChecked = isFixed && actionButtonHeight == 60 && actionFontSize == 18;
+        ExtraLargeButtonsMenuItem.IsChecked = isFixed && actionButtonHeight == 90 && actionFontSize == 24;
+        FillButtonsMenuItem.IsChecked = !isFixed;
     }
 
     /// <summary>
@@ -793,6 +881,14 @@ public partial class MainWindow : Window
             isLoadingSetup = false;
         }
 
+        // Action mode button size; nonsense values from a hand-edited file fall back to the defaults.
+        actionButtonSize = string.Equals(setup.ActionButtonSize, SetupFile.FillButtonSize, StringComparison.OrdinalIgnoreCase)
+            ? SetupFile.FillButtonSize
+            : SetupFile.FixedButtonSize;
+        actionButtonHeight = setup.ActionButtonHeight is >= 0 and <= 1000 ? setup.ActionButtonHeight : 60;
+        actionFontSize = setup.ActionFontSize is >= 6 and <= 120 ? setup.ActionFontSize : 18;
+        ApplyButtonSizing();
+
         usedTextsByTable.Clear();
         currentSetupFilePath = filePath;
         hasUnsavedSetupChanges = false;
@@ -852,6 +948,9 @@ public partial class MainWindow : Window
             Variables = SplitEditorLines(VariablesTextBox.Text),
             Joiners = SplitEditorLines(JoinersTextBox.Text),
             Buttons = SplitEditorLines(ButtonsTextBox.Text),
+            ActionButtonSize = actionButtonSize,
+            ActionButtonHeight = actionButtonHeight,
+            ActionFontSize = actionFontSize,
         };
 
         try

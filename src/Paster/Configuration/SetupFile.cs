@@ -23,6 +23,24 @@ public sealed class SetupFile
     /// <summary>Button template lines, e.g. "TRUNCATE TABLE [{schema}].[{fulltable}];".</summary>
     public List<string> Buttons { get; set; } = new();
 
+    /// <summary>Value of <see cref="ActionButtonSize"/>: every button gets <see cref="ActionButtonHeight"/>.</summary>
+    public const string FixedButtonSize = "fixed";
+
+    /// <summary>Value of <see cref="ActionButtonSize"/>: the buttons share the window height between them.</summary>
+    public const string FillButtonSize = "fill";
+
+    /// <summary>
+    /// How big the buttons are in Action mode: "fixed" (use <see cref="ActionButtonHeight"/>) or "fill"
+    /// (stretch to fill the window). Setup mode always uses normal-sized buttons.
+    /// </summary>
+    public string ActionButtonSize { get; set; } = FixedButtonSize;
+
+    /// <summary>Button height in pixels in Action mode when the size is "fixed".</summary>
+    public double ActionButtonHeight { get; set; } = 60;
+
+    /// <summary>Button text size in Action mode.</summary>
+    public double ActionFontSize { get; set; } = 18;
+
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = true,
