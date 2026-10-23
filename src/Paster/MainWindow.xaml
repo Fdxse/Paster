@@ -99,6 +99,10 @@
                 <Separator />
                 <MenuItem Header="E_xit" Click="ExitMenuItem_Click" />
             </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_Quick guide" InputGestureText="F1" Click="QuickGuideMenuItem_Click" />
+                <MenuItem Header="_About Paster" Click="AboutMenuItem_Click" />
+            </MenuItem>
         </Menu>
 
         <!-- Top bar -->

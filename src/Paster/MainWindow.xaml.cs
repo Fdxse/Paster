@@ -593,10 +593,17 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Ctrl+N = New, Ctrl+O = Open, Ctrl+S = Save, Ctrl+Shift+S = Save as.
+    /// F1 = Quick guide, Ctrl+N = New, Ctrl+O = Open, Ctrl+S = Save, Ctrl+Shift+S = Save as.
     /// </summary>
     private void Window_PreviewKeyDown(object sender, KeyEventArgs keyEventArgs)
     {
+        if (keyEventArgs.Key == Key.F1)
+        {
+            ShowQuickGuide();
+            keyEventArgs.Handled = true;
+            return;
+        }
+
         bool isControlHeld = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         bool isShiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
         if (!isControlHeld)
@@ -943,6 +950,50 @@ public partial class MainWindow : Window
     {
         string? currentFolder = currentSetupFilePath is null ? null : Path.GetDirectoryName(currentSetupFilePath);
         return currentFolder is not null && Directory.Exists(currentFolder) ? currentFolder : AppContext.BaseDirectory;
+    }
+
+    // ------------------------------------------------------------------
+    // Help menu
+    // ------------------------------------------------------------------
+
+    /// <summary>The open quick guide, so F1 brings the same window forward instead of opening another.</summary>
+    private HelpWindow? quickGuideWindow;
+
+    private void QuickGuideMenuItem_Click(object sender, RoutedEventArgs eventArgs) => ShowQuickGuide();
+
+    /// <summary>
+    /// Opens the quick guide next to the main window (not modal, so it can stay open while working).
+    /// </summary>
+    private void ShowQuickGuide()
+    {
+        if (quickGuideWindow is null)
+        {
+            // Owned by the main window so it stays in front of it, also with "Always on top".
+            quickGuideWindow = new HelpWindow { Owner = this };
+            quickGuideWindow.Closed += (_, _) => quickGuideWindow = null;
+            quickGuideWindow.Show();
+        }
+        else
+        {
+            quickGuideWindow.Activate();
+        }
+    }
+
+    /// <summary>
+    /// Help > About: version and where things are stored.
+    /// </summary>
+    private void AboutMenuItem_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        string versionText = typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "unknown";
+        MessageBox.Show(
+            this,
+            $"Paster {versionText}\n\n" +
+            $"Current setup: {currentSetupFilePath ?? "(not saved yet)"}\n" +
+            $"Logs: {ActionLog.LogFolder}\n" +
+            "Preferences: HKEY_CURRENT_USER\\Software\\Paster",
+            "About Paster",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     /// <summary>

@@ -28,7 +28,8 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Publish single-file EXE
-        run: dotnet publish src/Paster/Paster.csproj -c Release -o publish
+        # The build number becomes the version shown in Help > About.
+        run: dotnet publish src/Paster/Paster.csproj -c Release -o publish -p:Version=1.0.${{ github.run_number }}
 
       - name: Zip the EXE
         shell: pwsh

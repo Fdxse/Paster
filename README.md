@@ -13,6 +13,10 @@ example values is created next to the EXE.
 Windows SmartScreen may warn about an unknown publisher the first time, because the EXE is not code-signed.
 Click "More info" and then "Run anyway" (or right-click the zip, Properties, tick "Unblock" before unzipping).
 
+## Help
+
+**Help > Quick guide** (F1) explains every part of Paster inside the app. **Help > About** shows the version and where files are stored.
+
 ## Modes
 
 - **Setup**: the four editors are shown on the right. The buttons update as you type, so they work as a live preview.
