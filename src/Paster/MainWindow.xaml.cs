@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Paster.Configuration;
@@ -321,30 +322,78 @@ public partial class MainWindow : Window
 
         foreach (ButtonTemplate buttonTemplate in WorkPlanner.ButtonsFor(currentSetup, selectedStep))
         {
+            // Rendered without a counter value: {counter} stays as it is, so this text identifies the button.
             RenderResult renderResult = templateRenderer.Render(buttonTemplate.Template);
-
-            // A labelled block shows its (rendered) label on the button; the full text is in the tooltip.
             RenderResult? labelResult = buttonTemplate.Label is null ? null : templateRenderer.Render(buttonTemplate.Label);
             List<string> allErrors = renderResult.Errors.Concat(labelResult?.Errors ?? new List<string>()).ToList();
 
-            string toolTipText = renderResult.Text;
-            if (allErrors.Count > 0)
-            {
-                toolTipText += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, allErrors);
-            }
-
-            buttonItems.Add(new ClipboardButtonItem
+            var buttonItem = new ClipboardButtonItem
             {
                 RenderedText = renderResult.Text,
-                DisplayText = labelResult?.Text ?? renderResult.Text,
                 Template = buttonTemplate.Template,
+                LabelTemplate = buttonTemplate.Label,
+                UsesCounter = renderResult.UsesCounter || labelResult?.UsesCounter == true,
                 HasError = allErrors.Count > 0,
-                ToolTipText = toolTipText,
                 IsUsed = usedTexts.Contains(renderResult.Text),
-            });
+            };
+            ShowButtonTexts(buttonItem, selectedStep, allErrors);
+            buttonItems.Add(buttonItem);
         }
 
         ButtonItemsControl.ItemsSource = buttonItems;
+    }
+
+    /// <summary>
+    /// Fills in what a button shows and its tooltip. A labelled block shows its (rendered) label on the button;
+    /// the full text is in the tooltip. {counter} shows the number the next copy will get.
+    /// </summary>
+    private void ShowButtonTexts(ClipboardButtonItem buttonItem, WorkStep workStep, List<string> errors)
+    {
+        string fullText = buttonItem.RenderedText;
+        string? labelText = null;
+
+        if (buttonItem.UsesCounter)
+        {
+            var counterRenderer = new TemplateRenderer(currentSetup, workStep, NextCounterValue);
+            fullText = counterRenderer.Render(buttonItem.Template).Text;
+            labelText = buttonItem.LabelTemplate is null ? null : counterRenderer.Render(buttonItem.LabelTemplate).Text;
+        }
+        else if (buttonItem.LabelTemplate is not null)
+        {
+            labelText = new TemplateRenderer(currentSetup, workStep).Render(buttonItem.LabelTemplate).Text;
+        }
+
+        buttonItem.DisplayText = labelText ?? fullText;
+        buttonItem.ToolTipText = errors.Count == 0
+            ? fullText
+            : fullText + Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, errors);
+    }
+
+    /// <summary>The value {counter} gets with the next copy: the counter after it has gone up by 1.</summary>
+    private int NextCounterValue => preferences.ClickCount + 1;
+
+    /// <summary>
+    /// The counter changed: buttons that use {counter} show the new next number. Their copied state is kept.
+    /// </summary>
+    private void RefreshCounterButtons()
+    {
+        WorkStep? selectedStep = GetSelectedStep();
+        if (selectedStep is null || ButtonItemsControl.ItemsSource is not List<ClipboardButtonItem> buttonItems)
+        {
+            return;
+        }
+
+        foreach (ClipboardButtonItem buttonItem in buttonItems.Where(buttonItem => buttonItem.UsesCounter))
+        {
+            // Errors don't depend on the counter, so the ones already in the tooltip are kept.
+            List<string> errors = new TemplateRenderer(currentSetup, selectedStep).Render(buttonItem.Template).Errors;
+            if (buttonItem.LabelTemplate is not null)
+            {
+                errors.AddRange(new TemplateRenderer(currentSetup, selectedStep).Render(buttonItem.LabelTemplate).Errors);
+            }
+
+            ShowButtonTexts(buttonItem, selectedStep, errors);
+        }
     }
 
     /// <summary>
@@ -371,22 +420,19 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// What a click on a clipboard button does depends on "Keep buttons active":
+    /// A greyed-out button never copies and never counts, whatever the mode:
+    ///   Click: the button flashes and a hint is shown.
+    ///   Ctrl+click: make it clickable again (without copying).
     ///
-    /// Off (classic):
-    ///   Click: copy the text and grey the button out.
-    ///   Ctrl+click on a greyed-out button: make it clickable again (without copying).
-    ///   Click on a greyed-out button without Ctrl: nothing is copied, a hint is shown.
-    ///
-    /// On:
-    ///   Click: copy the text; the button stays as it is.
-    ///   Ctrl+click: copy the text and toggle the grey (greyed out &lt;-&gt; clickable).
+    /// A clickable button depends on "Keep buttons active":
+    ///   Off (classic): click copies the text and greys the button out.
+    ///   On: click copies the text and the button stays clickable; Ctrl+click copies and greys it out.
     ///
     /// Every copy adds 1 to the counter in the top bar.
     /// </summary>
     private void ClipboardButton_Click(object sender, RoutedEventArgs eventArgs)
     {
-        if (sender is not Button { DataContext: ClipboardButtonItem buttonItem })
+        if (sender is not Button { DataContext: ClipboardButtonItem buttonItem } clickedButton)
         {
             return;
         }
@@ -400,7 +446,7 @@ public partial class MainWindow : Window
         bool isControlHeld = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         bool keepButtonsActive = KeepActiveCheckBox.IsChecked == true;
 
-        if (!keepButtonsActive && buttonItem.IsUsed)
+        if (buttonItem.IsUsed)
         {
             if (isControlHeld)
             {
@@ -410,40 +456,37 @@ public partial class MainWindow : Window
             }
             else
             {
-                ShowStatus("Already copied. Ctrl+click the button to enable it again.");
+                FlashButton(clickedButton);
+                ShowStatus("That button is greyed out, nothing was copied. Ctrl+click it to enable it again.");
             }
 
             return;
         }
 
-        if (!TryCopyToClipboard(buttonItem.RenderedText, out string? copyError))
+        // {counter} becomes the value the counter goes to with this copy.
+        string textToCopy = buttonItem.UsesCounter
+            ? new TemplateRenderer(currentSetup, selectedStep, NextCounterValue).Render(buttonItem.Template).Text
+            : buttonItem.RenderedText;
+
+        if (!TryCopyToClipboard(textToCopy, out string? copyError))
         {
             ShowStatus($"Could not copy to the clipboard: {copyError}", isError: true);
             return;
         }
 
         ChangeClickCount(preferences.ClickCount + 1);
-        RecordAction("Copied", selectedStep.DisplayName, buttonItem.RenderedText);
+        RecordAction("Copied", selectedStep.DisplayName, textToCopy);
 
         if (keepButtonsActive && !isControlHeld)
         {
             // Copy only; the button keeps its look.
-            ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
+            ShowStatus($"Copied: {FirstLine(textToCopy)}");
             return;
         }
 
-        // Classic click greys out; with "Keep buttons active", Ctrl+click toggles.
-        bool becomesUsed = !keepButtonsActive || !buttonItem.IsUsed;
-        SetButtonUsed(buttonItem, selectedStep, becomesUsed);
-
-        if (!becomesUsed)
-        {
-            ShowStatus($"Copied and enabled again: {FirstLine(buttonItem.RenderedText)}");
-            RecordAction("Re-enabled", selectedStep.DisplayName, buttonItem.RenderedText);
-            return;
-        }
-
-        ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
+        // Classic click, or Ctrl+click with "Keep buttons active": grey the button out.
+        SetButtonUsed(buttonItem, selectedStep, isUsed: true);
+        ShowStatus($"Copied: {FirstLine(textToCopy)}");
 
         // In Action mode, the last button of a step moves on to the next step by itself.
         if (ActionModeRadioButton.IsChecked == true && IsStepComplete(selectedStep))
@@ -451,6 +494,25 @@ public partial class MainWindow : Window
             RecordAction("Done", selectedStep.DisplayName, string.Empty);
             ScheduleAdvanceFrom(selectedStep);
         }
+    }
+
+    /// <summary>
+    /// Blinks a button a couple of times, to show a click on a greyed-out button was noticed but did nothing.
+    /// </summary>
+    private static void FlashButton(Button clickedButton)
+    {
+        var blinkAnimation = new DoubleAnimation
+        {
+            From = 1.0,
+            To = 0.25,
+            Duration = TimeSpan.FromMilliseconds(90),
+            AutoReverse = true,
+            RepeatBehavior = new RepeatBehavior(2),
+        };
+
+        // When the animation ends, hand Opacity back to the button so it is fully visible again.
+        blinkAnimation.Completed += (_, _) => clickedButton.BeginAnimation(OpacityProperty, null);
+        clickedButton.BeginAnimation(OpacityProperty, blinkAnimation);
     }
 
     /// <summary>
@@ -486,7 +548,7 @@ public partial class MainWindow : Window
         preferences.KeepButtonsActive = KeepActiveCheckBox.IsChecked == true;
         preferences.Save();
         ShowStatus(preferences.KeepButtonsActive
-            ? "Buttons stay active: every click copies. Ctrl+click copies and greys out (or back)."
+            ? "Buttons stay active: every click copies. Ctrl+click copies and greys out."
             : "A click copies and greys the button out. Ctrl+click makes it clickable again.");
     }
 
@@ -554,6 +616,12 @@ public partial class MainWindow : Window
     private void ShowClickCount()
     {
         ClickCounterButton.Content = $"Count: {preferences.ClickCount}";
+
+        // Called once before the buttons exist (at startup); after that, keep {counter} buttons in step.
+        if (ButtonItemsControl is not null)
+        {
+            RefreshCounterButtons();
+        }
     }
 
     /// <summary>

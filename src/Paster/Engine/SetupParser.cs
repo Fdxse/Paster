@@ -16,6 +16,11 @@ public static class SetupParser
     /// <summary>The built-in variable that holds the current layer name (only when layers are used).</summary>
     public const string LayerVariableName = "layer";
 
+    /// <summary>
+    /// The built-in variable that holds the click counter: the number the counter goes to with this copy (1, 2, 3...).
+    /// </summary>
+    public const string CounterVariableName = "counter";
+
     /// <summary>The table line setting that limits a table to some layers: "DBTable; layers=stg,wrk".</summary>
     public const string LayersSettingName = "layers";
 
@@ -91,6 +96,12 @@ public static class SetupParser
             }
 
             ParseNameValueParts(lineParts.Skip(1), lineNumber, tableEntry.Overrides, tableEntry.Errors);
+
+            // {counter} is built in; a table line can't change it.
+            if (tableEntry.Overrides.Remove(CounterVariableName))
+            {
+                tableEntry.Errors.Add($"Line {lineNumber}: \"{CounterVariableName}\" is built in and always holds the click counter.");
+            }
 
             // "layers=stg,wrk" is not a variable: it picks the layers this table goes through.
             if (tableEntry.Overrides.Remove(LayersSettingName, out string? layerListText))
@@ -224,7 +235,7 @@ public static class SetupParser
             ParseNameValueParts(lineParts.Skip(1), lineNumber, layerEntry.Variables, parsedSetup.LayerErrors);
 
             // {table} and {layer} are built in; a layer can't change them.
-            foreach (string builtInName in new[] { TableVariableName, LayerVariableName, LayersSettingName })
+            foreach (string builtInName in new[] { TableVariableName, LayerVariableName, LayersSettingName, CounterVariableName })
             {
                 if (layerEntry.Variables.Remove(builtInName))
                 {
@@ -258,6 +269,12 @@ public static class SetupParser
             if (string.Equals(variableName, TableVariableName, StringComparison.OrdinalIgnoreCase))
             {
                 parsedSetup.VariableErrors.Add($"Line {lineNumber}: \"{TableVariableName}\" is built in and always holds the table name.");
+                continue;
+            }
+
+            if (string.Equals(variableName, CounterVariableName, StringComparison.OrdinalIgnoreCase))
+            {
+                parsedSetup.VariableErrors.Add($"Line {lineNumber}: \"{CounterVariableName}\" is built in and always holds the click counter.");
                 continue;
             }
 
@@ -298,6 +315,12 @@ public static class SetupParser
             if (string.Equals(joinerName, TableVariableName, StringComparison.OrdinalIgnoreCase))
             {
                 parsedSetup.JoinerErrors.Add($"Line {lineNumber}: \"{TableVariableName}\" is built in and cannot be a joiner.");
+                continue;
+            }
+
+            if (string.Equals(joinerName, CounterVariableName, StringComparison.OrdinalIgnoreCase))
+            {
+                parsedSetup.JoinerErrors.Add($"Line {lineNumber}: \"{CounterVariableName}\" is built in and cannot be a joiner.");
                 continue;
             }
 

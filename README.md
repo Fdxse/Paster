@@ -62,8 +62,9 @@ The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next t
 
 - **Click**: copies the text and greys the button out.
 - **Ctrl+click** a greyed-out button: enables it again so you can copy it once more.
+- A greyed-out button never copies or ticks the counter; clicking it just makes it flash.
 - **Keep buttons active** (top bar): every click copies and the button stays clickable; **Ctrl+click** copies *and*
-  toggles the grey (greyed out ↔ clickable). Off gives the behaviour above. Remembered per computer.
+  greys it out. Off gives the behaviour above. Remembered per computer.
 - **Count** (top bar): +1 for every copy. A plain click does nothing; **Ctrl+click** −1, **Alt+click** reset to 0,
   **Shift+click** type the number to continue from. Remembered between runs.
 - **Hover** a button to see the full text it will copy.
@@ -125,11 +126,13 @@ SELECT * FROM [stg].[{table}];
 ### Tokens
 
 - `{name}`: a variable or joiner. `{table}` is built in and holds the table name.
+- `{counter}`: the click counter. Each copy gets the number the counter goes to with that copy (1, 2, 3...);
+  the button shows the number its next copy will get. Works inside joiners too.
 - `{name:upper}`: with a transform. Chain them: `{table:snake:upper}`.
   Transforms: `upper`, `lower`, `trim`, `pascal`, `camel`, `snake`, `kebab`, `title`.
 - `{{` and `}}`: a literal `{` or `}`. Square brackets are plain text, so SQL like `[{schema}].[{table}]` just works.
 
-A name is looked up in this order: the override on the table line, the layer's variables, `{table}` and `{layer}`, the global variables, then the joiners.
+A name is looked up in this order: the override on the table line, the layer's variables, `{table}`, `{layer}` and `{counter}`, the global variables, then the joiners.
 Joiners can use other joiners; a loop (`a` uses `b` uses `a`) is reported as an error.
 
 ### Soft errors
