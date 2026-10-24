@@ -117,6 +117,8 @@
             <List MarkerStyle="Disc">
                 <ListItem><Paragraph><Bold>Click</Bold> copies the text and greys the button out.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Ctrl+click</Bold> a greyed-out button to make it clickable again.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Keep buttons active</Bold> (top bar): every click copies and the button stays clickable. <Bold>Ctrl+click</Bold> then copies and greys the button out, or makes a greyed-out one clickable again. Switch it off for the behaviour above.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Count</Bold> (top bar) goes up by 1 for every copy. Clicking it does nothing; <Bold>Ctrl+click</Bold> takes 1 off, <Bold>Alt+click</Bold> resets it to 0, <Bold>Shift+click</Bold> lets you type the number to continue from. It is remembered between runs.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Hover</Bold> over a button to see the full text it will copy.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Reset table</Bold> (Reset step with layers) makes every button in the selected row clickable again; <Bold>Reset all</Bold> does it everywhere.</Paragraph></ListItem>
                 <ListItem><Paragraph>The list on the left shows how many buttons you have copied per row, e.g. 2/5, and greys out a row with a ✓ when it is done. The progress bar above the buttons shows the total.</Paragraph></ListItem>

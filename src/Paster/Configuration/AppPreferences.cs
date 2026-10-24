@@ -5,7 +5,7 @@ using Microsoft.Win32;
 namespace Paster.Configuration;
 
 /// <summary>
-/// Per-computer preferences: the mode, "Always on top" and the recent files list.
+/// Per-computer preferences: the mode, "Always on top", "Keep buttons active", the click counter and the recent files list.
 /// They are kept in the current user's registry (HKEY_CURRENT_USER\Software\Paster) instead of a file,
 /// so a setup JSON file only ever holds the setup itself and can be copied anywhere.
 /// </summary>
@@ -27,6 +27,15 @@ public sealed class AppPreferences
 
     /// <summary>True if the window should stay above all other windows.</summary>
     public bool AlwaysOnTop { get; set; }
+
+    /// <summary>
+    /// True if clicked buttons stay clickable (only Ctrl+click greys them out). False is the classic behaviour:
+    /// a click copies and greys the button out.
+    /// </summary>
+    public bool KeepButtonsActive { get; set; }
+
+    /// <summary>The click counter in the top bar, kept between runs.</summary>
+    public int ClickCount { get; set; }
 
     /// <summary>Recently opened or saved setup files, most recent first.</summary>
     public List<string> RecentFiles { get; set; } = new();
@@ -50,6 +59,8 @@ public sealed class AppPreferences
 
             preferences.Mode = preferencesKey.GetValue(nameof(Mode)) as string ?? SetupModeName;
             preferences.AlwaysOnTop = preferencesKey.GetValue(nameof(AlwaysOnTop)) is int alwaysOnTopValue && alwaysOnTopValue != 0;
+            preferences.KeepButtonsActive = preferencesKey.GetValue(nameof(KeepButtonsActive)) is int keepActiveValue && keepActiveValue != 0;
+            preferences.ClickCount = preferencesKey.GetValue(nameof(ClickCount)) is int clickCountValue ? clickCountValue : 0;
             if (preferencesKey.GetValue(nameof(RecentFiles)) is string[] recentFilePaths)
             {
                 preferences.RecentFiles = recentFilePaths.Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
@@ -73,6 +84,8 @@ public sealed class AppPreferences
             using RegistryKey preferencesKey = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
             preferencesKey.SetValue(nameof(Mode), Mode, RegistryValueKind.String);
             preferencesKey.SetValue(nameof(AlwaysOnTop), AlwaysOnTop ? 1 : 0, RegistryValueKind.DWord);
+            preferencesKey.SetValue(nameof(KeepButtonsActive), KeepButtonsActive ? 1 : 0, RegistryValueKind.DWord);
+            preferencesKey.SetValue(nameof(ClickCount), ClickCount, RegistryValueKind.DWord);
             preferencesKey.SetValue(nameof(RecentFiles), RecentFiles.ToArray(), RegistryValueKind.MultiString);
         }
         catch (Exception)
