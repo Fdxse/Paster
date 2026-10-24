@@ -48,7 +48,7 @@ anywhere (or to a colleague) and open it again. Use the **File** menu:
 - The title bar shows the current file, with `*` when there are unsaved changes. Paster asks before throwing changes away.
 - On start Paster opens the file you used last. The very first time it creates `config.json` next to the EXE with an example setup.
 
-Mode, "Always on top" and the recent files list are remembered per computer (in the registry under
+Mode, "Always on top", "Keep buttons active", the counter and the recent files list are remembered per computer (in the registry under
 `HKEY_CURRENT_USER\Software\Paster`), so they never end up in your setup files.
 
 ## Action log
@@ -62,6 +62,10 @@ The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next t
 
 - **Click**: copies the text and greys the button out.
 - **Ctrl+click** a greyed-out button: enables it again so you can copy it once more.
+- **Keep buttons active** (top bar): every click copies and the button stays clickable; **Ctrl+click** copies *and*
+  toggles the grey (greyed out ↔ clickable). Off gives the behaviour above. Remembered per computer.
+- **Count** (top bar): +1 for every copy. A plain click does nothing; **Ctrl+click** −1, **Alt+click** reset to 0,
+  **Shift+click** type the number to continue from. Remembered between runs.
 - **Hover** a button to see the full text it will copy.
 - **Reset table** (**Reset step** with layers) enables every button in the selected row; **Reset all** does it everywhere.
 - The list on the left shows `copied/total` per row and greys a row out with a ✓ when it is done; the progress bar above the buttons shows the total.

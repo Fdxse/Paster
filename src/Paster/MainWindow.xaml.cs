@@ -83,7 +83,7 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Restores the mode and "Always on top" from the last time Paster ran on this computer.
+    /// Restores the mode, "Always on top", "Keep buttons active" and the counter from the last time Paster ran on this computer.
     /// </summary>
     private void ApplyPreferences()
     {
@@ -97,6 +97,9 @@ public partial class MainWindow : Window
 
             AlwaysOnTopCheckBox.IsChecked = preferences.AlwaysOnTop;
             Topmost = preferences.AlwaysOnTop;
+
+            KeepActiveCheckBox.IsChecked = preferences.KeepButtonsActive;
+            ShowClickCount();
         }
         finally
         {
@@ -368,9 +371,18 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Click: copy the text and grey the button out.
-    /// Ctrl+click on a greyed-out button: make it clickable again (without copying).
-    /// Click on a greyed-out button without Ctrl: nothing is copied, a hint is shown.
+    /// What a click on a clipboard button does depends on "Keep buttons active":
+    ///
+    /// Off (classic):
+    ///   Click: copy the text and grey the button out.
+    ///   Ctrl+click on a greyed-out button: make it clickable again (without copying).
+    ///   Click on a greyed-out button without Ctrl: nothing is copied, a hint is shown.
+    ///
+    /// On:
+    ///   Click: copy the text; the button stays as it is.
+    ///   Ctrl+click: copy the text and toggle the grey (greyed out &lt;-&gt; clickable).
+    ///
+    /// Every copy adds 1 to the counter in the top bar.
     /// </summary>
     private void ClipboardButton_Click(object sender, RoutedEventArgs eventArgs)
     {
@@ -385,17 +397,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        HashSet<string> usedTexts = GetUsedTexts(selectedStep);
         bool isControlHeld = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        bool keepButtonsActive = KeepActiveCheckBox.IsChecked == true;
 
-        if (buttonItem.IsUsed)
+        if (!keepButtonsActive && buttonItem.IsUsed)
         {
             if (isControlHeld)
             {
-                buttonItem.IsUsed = false;
-                usedTexts.Remove(buttonItem.RenderedText);
-                UpdateSelectedStepProgress(selectedStep);
-                UpdateOverallProgress();
+                SetButtonUsed(buttonItem, selectedStep, isUsed: false);
                 ShowStatus("Button enabled again.");
                 RecordAction("Re-enabled", selectedStep.DisplayName, buttonItem.RenderedText);
             }
@@ -413,12 +422,28 @@ public partial class MainWindow : Window
             return;
         }
 
-        buttonItem.IsUsed = true;
-        usedTexts.Add(buttonItem.RenderedText);
-        UpdateSelectedStepProgress(selectedStep);
-        UpdateOverallProgress();
-        ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
+        ChangeClickCount(preferences.ClickCount + 1);
         RecordAction("Copied", selectedStep.DisplayName, buttonItem.RenderedText);
+
+        if (keepButtonsActive && !isControlHeld)
+        {
+            // Copy only; the button keeps its look.
+            ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
+            return;
+        }
+
+        // Classic click greys out; with "Keep buttons active", Ctrl+click toggles.
+        bool becomesUsed = !keepButtonsActive || !buttonItem.IsUsed;
+        SetButtonUsed(buttonItem, selectedStep, becomesUsed);
+
+        if (!becomesUsed)
+        {
+            ShowStatus($"Copied and enabled again: {FirstLine(buttonItem.RenderedText)}");
+            RecordAction("Re-enabled", selectedStep.DisplayName, buttonItem.RenderedText);
+            return;
+        }
+
+        ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
 
         // In Action mode, the last button of a step moves on to the next step by itself.
         if (ActionModeRadioButton.IsChecked == true && IsStepComplete(selectedStep))
@@ -426,6 +451,109 @@ public partial class MainWindow : Window
             RecordAction("Done", selectedStep.DisplayName, string.Empty);
             ScheduleAdvanceFrom(selectedStep);
         }
+    }
+
+    /// <summary>
+    /// Greys a button out (used) or makes it clickable again, and updates the progress counters.
+    /// </summary>
+    private void SetButtonUsed(ClipboardButtonItem buttonItem, WorkStep selectedStep, bool isUsed)
+    {
+        HashSet<string> usedTexts = GetUsedTexts(selectedStep);
+        buttonItem.IsUsed = isUsed;
+        if (isUsed)
+        {
+            usedTexts.Add(buttonItem.RenderedText);
+        }
+        else
+        {
+            usedTexts.Remove(buttonItem.RenderedText);
+        }
+
+        UpdateSelectedStepProgress(selectedStep);
+        UpdateOverallProgress();
+    }
+
+    /// <summary>
+    /// "Keep buttons active" was switched on or off. Remembered on this computer.
+    /// </summary>
+    private void KeepActiveCheckBox_Changed(object sender, RoutedEventArgs eventArgs)
+    {
+        if (isLoadingSetup)
+        {
+            return;
+        }
+
+        preferences.KeepButtonsActive = KeepActiveCheckBox.IsChecked == true;
+        preferences.Save();
+        ShowStatus(preferences.KeepButtonsActive
+            ? "Buttons stay active: every click copies. Ctrl+click copies and greys out (or back)."
+            : "A click copies and greys the button out. Ctrl+click makes it clickable again.");
+    }
+
+    // ------------------------------------------------------------------
+    // Click counter (top bar)
+    // ------------------------------------------------------------------
+
+    /// <summary>True right after an Alt+click on the counter, so letting go of Alt doesn't jump into the menu.</summary>
+    private bool swallowNextAltRelease;
+
+    /// <summary>
+    /// Click: nothing. Ctrl+click: minus 1. Alt+click: reset to 0. Shift+click: type a number to continue from.
+    /// </summary>
+    private void ClickCounterButton_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        ModifierKeys heldModifiers = Keyboard.Modifiers;
+
+        if ((heldModifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+        {
+            int? startNumber = NumberPromptWindow.Ask(this, "Counter", "Start the counter at:", preferences.ClickCount);
+            if (startNumber is not null)
+            {
+                ChangeClickCount(startNumber.Value);
+                ShowStatus($"Counter set to {startNumber.Value}.");
+            }
+        }
+        else if ((heldModifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            ChangeClickCount(preferences.ClickCount - 1);
+        }
+        else if ((heldModifiers & ModifierKeys.Alt) == ModifierKeys.Alt)
+        {
+            swallowNextAltRelease = true;
+            ChangeClickCount(0);
+            ShowStatus("Counter reset to 0.");
+        }
+
+        // A plain click does nothing on purpose, so the counter can't be bumped by accident.
+    }
+
+    /// <summary>
+    /// Letting go of Alt normally moves the keyboard focus to the menu bar. After an Alt+click on the counter
+    /// that would be surprising, so that one release is swallowed.
+    /// </summary>
+    private void Window_PreviewKeyUp(object sender, KeyEventArgs keyEventArgs)
+    {
+        bool isAltKey = keyEventArgs.Key == Key.System && keyEventArgs.SystemKey is Key.LeftAlt or Key.RightAlt;
+        if (isAltKey && swallowNextAltRelease)
+        {
+            swallowNextAltRelease = false;
+            keyEventArgs.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Sets the counter, shows it and remembers it for next time.
+    /// </summary>
+    private void ChangeClickCount(int newClickCount)
+    {
+        preferences.ClickCount = newClickCount;
+        preferences.Save();
+        ShowClickCount();
+    }
+
+    private void ShowClickCount()
+    {
+        ClickCounterButton.Content = $"Count: {preferences.ClickCount}";
     }
 
     /// <summary>
