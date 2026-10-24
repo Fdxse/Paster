@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Paster.Configuration;
@@ -371,22 +372,19 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// What a click on a clipboard button does depends on "Keep buttons active":
+    /// A greyed-out button never copies and never counts, whatever the mode:
+    ///   Click: the button flashes and a hint is shown.
+    ///   Ctrl+click: make it clickable again (without copying).
     ///
-    /// Off (classic):
-    ///   Click: copy the text and grey the button out.
-    ///   Ctrl+click on a greyed-out button: make it clickable again (without copying).
-    ///   Click on a greyed-out button without Ctrl: nothing is copied, a hint is shown.
-    ///
-    /// On:
-    ///   Click: copy the text; the button stays as it is.
-    ///   Ctrl+click: copy the text and toggle the grey (greyed out &lt;-&gt; clickable).
+    /// A clickable button depends on "Keep buttons active":
+    ///   Off (classic): click copies the text and greys the button out.
+    ///   On: click copies the text and the button stays clickable; Ctrl+click copies and greys it out.
     ///
     /// Every copy adds 1 to the counter in the top bar.
     /// </summary>
     private void ClipboardButton_Click(object sender, RoutedEventArgs eventArgs)
     {
-        if (sender is not Button { DataContext: ClipboardButtonItem buttonItem })
+        if (sender is not Button { DataContext: ClipboardButtonItem buttonItem } clickedButton)
         {
             return;
         }
@@ -400,7 +398,7 @@ public partial class MainWindow : Window
         bool isControlHeld = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         bool keepButtonsActive = KeepActiveCheckBox.IsChecked == true;
 
-        if (!keepButtonsActive && buttonItem.IsUsed)
+        if (buttonItem.IsUsed)
         {
             if (isControlHeld)
             {
@@ -410,7 +408,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                ShowStatus("Already copied. Ctrl+click the button to enable it again.");
+                FlashButton(clickedButton);
+                ShowStatus("That button is greyed out, nothing was copied. Ctrl+click it to enable it again.");
             }
 
             return;
@@ -432,17 +431,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Classic click greys out; with "Keep buttons active", Ctrl+click toggles.
-        bool becomesUsed = !keepButtonsActive || !buttonItem.IsUsed;
-        SetButtonUsed(buttonItem, selectedStep, becomesUsed);
-
-        if (!becomesUsed)
-        {
-            ShowStatus($"Copied and enabled again: {FirstLine(buttonItem.RenderedText)}");
-            RecordAction("Re-enabled", selectedStep.DisplayName, buttonItem.RenderedText);
-            return;
-        }
-
+        // Classic click, or Ctrl+click with "Keep buttons active": grey the button out.
+        SetButtonUsed(buttonItem, selectedStep, isUsed: true);
         ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
 
         // In Action mode, the last button of a step moves on to the next step by itself.
@@ -451,6 +441,25 @@ public partial class MainWindow : Window
             RecordAction("Done", selectedStep.DisplayName, string.Empty);
             ScheduleAdvanceFrom(selectedStep);
         }
+    }
+
+    /// <summary>
+    /// Blinks a button a couple of times, to show a click on a greyed-out button was noticed but did nothing.
+    /// </summary>
+    private static void FlashButton(Button clickedButton)
+    {
+        var blinkAnimation = new DoubleAnimation
+        {
+            From = 1.0,
+            To = 0.25,
+            Duration = TimeSpan.FromMilliseconds(90),
+            AutoReverse = true,
+            RepeatBehavior = new RepeatBehavior(2),
+        };
+
+        // When the animation ends, hand Opacity back to the button so it is fully visible again.
+        blinkAnimation.Completed += (_, _) => clickedButton.BeginAnimation(OpacityProperty, null);
+        clickedButton.BeginAnimation(OpacityProperty, blinkAnimation);
     }
 
     /// <summary>
@@ -486,7 +495,7 @@ public partial class MainWindow : Window
         preferences.KeepButtonsActive = KeepActiveCheckBox.IsChecked == true;
         preferences.Save();
         ShowStatus(preferences.KeepButtonsActive
-            ? "Buttons stay active: every click copies. Ctrl+click copies and greys out (or back)."
+            ? "Buttons stay active: every click copies. Ctrl+click copies and greys out."
             : "A click copies and greys the button out. Ctrl+click makes it clickable again.");
     }
 

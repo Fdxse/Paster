@@ -62,8 +62,9 @@ The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next t
 
 - **Click**: copies the text and greys the button out.
 - **Ctrl+click** a greyed-out button: enables it again so you can copy it once more.
+- A greyed-out button never copies or ticks the counter; clicking it just makes it flash.
 - **Keep buttons active** (top bar): every click copies and the button stays clickable; **Ctrl+click** copies *and*
-  toggles the grey (greyed out ↔ clickable). Off gives the behaviour above. Remembered per computer.
+  greys it out. Off gives the behaviour above. Remembered per computer.
 - **Count** (top bar): +1 for every copy. A plain click does nothing; **Ctrl+click** −1, **Alt+click** reset to 0,
   **Shift+click** type the number to continue from. Remembered between runs.
 - **Hover** a button to see the full text it will copy.

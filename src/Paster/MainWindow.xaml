@@ -156,7 +156,7 @@
                 <CheckBox x:Name="KeepActiveCheckBox" DockPanel.Dock="Right" Content="Keep buttons active"
                           VerticalAlignment="Center" Margin="0,0,12,0"
                           Checked="KeepActiveCheckBox_Changed" Unchecked="KeepActiveCheckBox_Changed"
-                          ToolTip="On: every click copies and the button stays clickable. Ctrl+click copies and greys it out (or back).&#x0a;Off: a click copies and greys the button out; Ctrl+click makes it clickable again." />
+                          ToolTip="On: every click copies and the button stays clickable. Ctrl+click copies and greys it out.&#x0a;Off: a click copies and greys the button out.&#x0a;Either way, a greyed-out button never copies; Ctrl+click makes it clickable again." />
                 <!-- Counts every copy. Ctrl+click -1, Alt+click reset to 0, Shift+click type a number. -->
                 <Button x:Name="ClickCounterButton" DockPanel.Dock="Right" Content="Count: 0" Padding="10,2" Margin="0,0,12,0"
                         MinWidth="80" FontWeight="SemiBold"
