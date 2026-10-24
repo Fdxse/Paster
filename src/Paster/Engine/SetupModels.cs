@@ -128,4 +128,7 @@ public sealed class RenderResult
     public string Text { get; init; } = string.Empty;
     public List<string> Errors { get; init; } = new();
     public bool HasErrors => Errors.Count > 0;
+
+    /// <summary>True if the template uses {counter} (directly or through a joiner), so its text changes with every copy.</summary>
+    public bool UsesCounter { get; init; }
 }

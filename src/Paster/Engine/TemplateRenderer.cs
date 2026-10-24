@@ -14,7 +14,7 @@ namespace Paster.Engine;
 /// Lookup order for a name:
 ///   1. the per-line override on the table line ("DBTable; schema=stg")
 ///   2. the layer's variables ("dwh; schema=dwh")
-///   3. the built-in {table} and {layer}
+///   3. the built-in {table}, {layer} and {counter}
 ///   4. the global variables
 ///   5. the joiners (rendered recursively, loops are reported as errors)
 /// </summary>
@@ -26,11 +26,21 @@ public sealed class TemplateRenderer
     /// <summary>The layer of the step, or null when the setup has no layers.</summary>
     private readonly LayerEntry? layerEntry;
 
-    public TemplateRenderer(ParsedSetup parsedSetup, WorkStep workStep)
+    /// <summary>
+    /// What {counter} becomes. Null keeps "{counter}" as it is in the output (with any transforms), which gives a
+    /// text that stays the same while the counter moves on, used to remember which buttons were copied.
+    /// </summary>
+    private readonly string? counterText;
+
+    /// <summary>Set while rendering when {counter} is met; reset at the start of every Render.</summary>
+    private bool counterWasUsed;
+
+    public TemplateRenderer(ParsedSetup parsedSetup, WorkStep workStep, int? counterValue = null)
     {
         this.parsedSetup = parsedSetup;
         tableEntry = workStep.Table;
         layerEntry = workStep.Layer;
+        counterText = counterValue?.ToString();
     }
 
     /// <summary>
@@ -39,8 +49,9 @@ public sealed class TemplateRenderer
     public RenderResult Render(string template)
     {
         var errors = new List<string>();
+        counterWasUsed = false;
         string renderedText = RenderInternal(template, new List<string>(), errors);
-        return new RenderResult { Text = renderedText, Errors = errors };
+        return new RenderResult { Text = renderedText, Errors = errors, UsesCounter = counterWasUsed };
     }
 
     /// <summary>
@@ -122,6 +133,13 @@ public sealed class TemplateRenderer
             return "{" + tokenText + "}";
         }
 
+        // Without a counter value, {counter} (with its transforms) is written back unchanged.
+        if (counterText is null && string.Equals(variableName, SetupParser.CounterVariableName, StringComparison.OrdinalIgnoreCase))
+        {
+            counterWasUsed = true;
+            return "{" + tokenText + "}";
+        }
+
         int errorCountBefore = errors.Count;
         string value = ResolveName(variableName, joinerStack, errors);
 
@@ -167,6 +185,12 @@ public sealed class TemplateRenderer
         if (layerEntry is not null && string.Equals(variableName, SetupParser.LayerVariableName, StringComparison.OrdinalIgnoreCase))
         {
             return layerEntry.Name;
+        }
+
+        if (string.Equals(variableName, SetupParser.CounterVariableName, StringComparison.OrdinalIgnoreCase))
+        {
+            counterWasUsed = true;
+            return counterText ?? string.Empty;
         }
 
         if (parsedSetup.GlobalVariables.TryGetValue(variableName, out string? globalValue))

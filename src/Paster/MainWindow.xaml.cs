@@ -322,30 +322,78 @@ public partial class MainWindow : Window
 
         foreach (ButtonTemplate buttonTemplate in WorkPlanner.ButtonsFor(currentSetup, selectedStep))
         {
+            // Rendered without a counter value: {counter} stays as it is, so this text identifies the button.
             RenderResult renderResult = templateRenderer.Render(buttonTemplate.Template);
-
-            // A labelled block shows its (rendered) label on the button; the full text is in the tooltip.
             RenderResult? labelResult = buttonTemplate.Label is null ? null : templateRenderer.Render(buttonTemplate.Label);
             List<string> allErrors = renderResult.Errors.Concat(labelResult?.Errors ?? new List<string>()).ToList();
 
-            string toolTipText = renderResult.Text;
-            if (allErrors.Count > 0)
-            {
-                toolTipText += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, allErrors);
-            }
-
-            buttonItems.Add(new ClipboardButtonItem
+            var buttonItem = new ClipboardButtonItem
             {
                 RenderedText = renderResult.Text,
-                DisplayText = labelResult?.Text ?? renderResult.Text,
                 Template = buttonTemplate.Template,
+                LabelTemplate = buttonTemplate.Label,
+                UsesCounter = renderResult.UsesCounter || labelResult?.UsesCounter == true,
                 HasError = allErrors.Count > 0,
-                ToolTipText = toolTipText,
                 IsUsed = usedTexts.Contains(renderResult.Text),
-            });
+            };
+            ShowButtonTexts(buttonItem, selectedStep, allErrors);
+            buttonItems.Add(buttonItem);
         }
 
         ButtonItemsControl.ItemsSource = buttonItems;
+    }
+
+    /// <summary>
+    /// Fills in what a button shows and its tooltip. A labelled block shows its (rendered) label on the button;
+    /// the full text is in the tooltip. {counter} shows the number the next copy will get.
+    /// </summary>
+    private void ShowButtonTexts(ClipboardButtonItem buttonItem, WorkStep workStep, List<string> errors)
+    {
+        string fullText = buttonItem.RenderedText;
+        string? labelText = null;
+
+        if (buttonItem.UsesCounter)
+        {
+            var counterRenderer = new TemplateRenderer(currentSetup, workStep, NextCounterValue);
+            fullText = counterRenderer.Render(buttonItem.Template).Text;
+            labelText = buttonItem.LabelTemplate is null ? null : counterRenderer.Render(buttonItem.LabelTemplate).Text;
+        }
+        else if (buttonItem.LabelTemplate is not null)
+        {
+            labelText = new TemplateRenderer(currentSetup, workStep).Render(buttonItem.LabelTemplate).Text;
+        }
+
+        buttonItem.DisplayText = labelText ?? fullText;
+        buttonItem.ToolTipText = errors.Count == 0
+            ? fullText
+            : fullText + Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, errors);
+    }
+
+    /// <summary>The value {counter} gets with the next copy: the counter after it has gone up by 1.</summary>
+    private int NextCounterValue => preferences.ClickCount + 1;
+
+    /// <summary>
+    /// The counter changed: buttons that use {counter} show the new next number. Their copied state is kept.
+    /// </summary>
+    private void RefreshCounterButtons()
+    {
+        WorkStep? selectedStep = GetSelectedStep();
+        if (selectedStep is null || ButtonItemsControl.ItemsSource is not List<ClipboardButtonItem> buttonItems)
+        {
+            return;
+        }
+
+        foreach (ClipboardButtonItem buttonItem in buttonItems.Where(buttonItem => buttonItem.UsesCounter))
+        {
+            // Errors don't depend on the counter, so the ones already in the tooltip are kept.
+            List<string> errors = new TemplateRenderer(currentSetup, selectedStep).Render(buttonItem.Template).Errors;
+            if (buttonItem.LabelTemplate is not null)
+            {
+                errors.AddRange(new TemplateRenderer(currentSetup, selectedStep).Render(buttonItem.LabelTemplate).Errors);
+            }
+
+            ShowButtonTexts(buttonItem, selectedStep, errors);
+        }
     }
 
     /// <summary>
@@ -415,25 +463,30 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!TryCopyToClipboard(buttonItem.RenderedText, out string? copyError))
+        // {counter} becomes the value the counter goes to with this copy.
+        string textToCopy = buttonItem.UsesCounter
+            ? new TemplateRenderer(currentSetup, selectedStep, NextCounterValue).Render(buttonItem.Template).Text
+            : buttonItem.RenderedText;
+
+        if (!TryCopyToClipboard(textToCopy, out string? copyError))
         {
             ShowStatus($"Could not copy to the clipboard: {copyError}", isError: true);
             return;
         }
 
         ChangeClickCount(preferences.ClickCount + 1);
-        RecordAction("Copied", selectedStep.DisplayName, buttonItem.RenderedText);
+        RecordAction("Copied", selectedStep.DisplayName, textToCopy);
 
         if (keepButtonsActive && !isControlHeld)
         {
             // Copy only; the button keeps its look.
-            ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
+            ShowStatus($"Copied: {FirstLine(textToCopy)}");
             return;
         }
 
         // Classic click, or Ctrl+click with "Keep buttons active": grey the button out.
         SetButtonUsed(buttonItem, selectedStep, isUsed: true);
-        ShowStatus($"Copied: {FirstLine(buttonItem.RenderedText)}");
+        ShowStatus($"Copied: {FirstLine(textToCopy)}");
 
         // In Action mode, the last button of a step moves on to the next step by itself.
         if (ActionModeRadioButton.IsChecked == true && IsStepComplete(selectedStep))
@@ -563,6 +616,12 @@ public partial class MainWindow : Window
     private void ShowClickCount()
     {
         ClickCounterButton.Content = $"Count: {preferences.ClickCount}";
+
+        // Called once before the buttons exist (at startup); after that, keep {counter} buttons in step.
+        if (ButtonItemsControl is not null)
+        {
+            RefreshCounterButtons();
+        }
     }
 
     /// <summary>

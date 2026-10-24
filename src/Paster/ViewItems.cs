@@ -67,21 +67,43 @@ public sealed class StepListItem : ObservableObject
 public sealed class ClipboardButtonItem : ObservableObject
 {
     private bool isUsed;
+    private string displayText = string.Empty;
+    private string toolTipText = string.Empty;
 
-    /// <summary>The finished text that is copied to the clipboard.</summary>
+    /// <summary>
+    /// The finished text, with {counter} left as it is. It stays the same while the counter moves on,
+    /// so it is used to remember which buttons were copied.
+    /// </summary>
     public string RenderedText { get; init; } = string.Empty;
 
-    /// <summary>What the button shows: the rendered label of a "&lt;&lt;&lt; label" block, otherwise the text itself.</summary>
-    public string DisplayText { get; init; } = string.Empty;
+    /// <summary>
+    /// What the button shows: the rendered label of a "&lt;&lt;&lt; label" block, otherwise the text itself.
+    /// With {counter} it shows the number the next copy will get, so it changes as the counter moves.
+    /// </summary>
+    public string DisplayText
+    {
+        get => displayText;
+        set => SetProperty(ref displayText, value);
+    }
 
-    /// <summary>The template the text came from, shown in the tooltip.</summary>
+    /// <summary>The template the text came from.</summary>
     public string Template { get; init; } = string.Empty;
+
+    /// <summary>The label template of a "&lt;&lt;&lt; label" block, or null.</summary>
+    public string? LabelTemplate { get; init; }
+
+    /// <summary>True if the text or label uses {counter}, so it has to be rendered again when the counter changes.</summary>
+    public bool UsesCounter { get; init; }
 
     /// <summary>True if rendering failed somewhere (button is shown light red).</summary>
     public bool HasError { get; init; }
 
     /// <summary>Tooltip text: the full rendered text plus any errors.</summary>
-    public string ToolTipText { get; init; } = string.Empty;
+    public string ToolTipText
+    {
+        get => toolTipText;
+        set => SetProperty(ref toolTipText, value);
+    }
 
     /// <summary>
     /// True after the button has been clicked (it looks disabled). Ctrl+click sets it back to false.

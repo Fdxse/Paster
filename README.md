@@ -126,11 +126,13 @@ SELECT * FROM [stg].[{table}];
 ### Tokens
 
 - `{name}`: a variable or joiner. `{table}` is built in and holds the table name.
+- `{counter}`: the click counter. Each copy gets the number the counter goes to with that copy (1, 2, 3...);
+  the button shows the number its next copy will get. Works inside joiners too.
 - `{name:upper}`: with a transform. Chain them: `{table:snake:upper}`.
   Transforms: `upper`, `lower`, `trim`, `pascal`, `camel`, `snake`, `kebab`, `title`.
 - `{{` and `}}`: a literal `{` or `}`. Square brackets are plain text, so SQL like `[{schema}].[{table}]` just works.
 
-A name is looked up in this order: the override on the table line, the layer's variables, `{table}` and `{layer}`, the global variables, then the joiners.
+A name is looked up in this order: the override on the table line, the layer's variables, `{table}`, `{layer}` and `{counter}`, the global variables, then the joiners.
 Joiners can use other joiners; a loop (`a` uses `b` uses `a`) is reported as an error.
 
 ### Soft errors

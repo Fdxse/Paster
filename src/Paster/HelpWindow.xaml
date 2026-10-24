@@ -90,10 +90,11 @@
             <Paragraph Style="{StaticResource SectionHeading}">6. Tokens and transforms</Paragraph>
             <List MarkerStyle="Disc">
                 <ListItem><Paragraph>{name} inserts a variable or joiner.</Paragraph></ListItem>
+                <ListItem><Paragraph>{counter} is the click counter: each copy gets the number the counter goes to, so the same button gives 1, 2, 3... The button shows the number its next copy will get.</Paragraph></ListItem>
                 <ListItem><Paragraph>{name:upper} applies a transform. Chain them: {table:snake:upper}.</Paragraph></ListItem>
                 <ListItem><Paragraph>Transforms: upper, lower, trim, pascal (DbTable), camel (dbTable), snake (db_table), kebab (db-table), title (Db Table).</Paragraph></ListItem>
                 <ListItem><Paragraph>{{ and }} give a literal { or }. Square brackets are plain text, so SQL like [{schema}] just works.</Paragraph></ListItem>
-                <ListItem><Paragraph>Lookup order: the table line's override, then the layer's variables, then {table} and {layer}, then global variables, then joiners.</Paragraph></ListItem>
+                <ListItem><Paragraph>Lookup order: the table line's override, then the layer's variables, then {table}, {layer} and {counter}, then global variables, then joiners.</Paragraph></ListItem>
                 <ListItem><Paragraph>Lines starting with // are comments in all five editors.</Paragraph></ListItem>
             </List>
 
