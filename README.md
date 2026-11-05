@@ -70,10 +70,10 @@ The same lines are appended to a daily file, `logs\paster-YYYY-MM-DD.log` next t
 - **Hover** a button to see the full text it will copy.
 - **Reset table** (**Reset step** with layers) enables every button in the selected row; **Reset all** does it everywhere.
 - The list on the left shows `copied/total` per row and greys a row out with a ✓ when it is done; the progress bar above the buttons shows the total.
-- In **Action mode**, finishing a row jumps to the next row that still has buttons left. A row is finished when every
+- Finishing a row (in Setup or Action mode) jumps to the next row that still has buttons left. A row is finished when every
   button is greyed out, or, with **Keep buttons active**, when every button has been copied at least once.
 - **Show all** (top bar) lists the buttons of every row in one list, with a heading per table / step, so there is no
-  clicking between rows (handy with one operation per layer). Picking a row on the left scrolls to it. Saved in the
+  clicking between rows (handy with one operation per layer). Picking a row on the left scrolls to it, and finishing a step scrolls on to the next one. Saved in the
   setup file as `"showAllSteps": true`. With Show all the list scrolls, so *Fill the window* is not used.
 
 ## The five editors
