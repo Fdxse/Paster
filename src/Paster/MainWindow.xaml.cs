@@ -44,7 +44,7 @@ public partial class MainWindow : Window
     /// <summary>Walk order of the current setup (only matters when it has layers).</summary>
     private WalkOrder walkOrder = WalkOrder.ByLayer;
 
-    /// <summary>Short pause before Action mode jumps to the next step, so the last copied button is seen greying out.</summary>
+    /// <summary>Short pause before Paster jumps to the next step, so the last copied button is seen greying out.</summary>
     private static readonly TimeSpan AutoAdvanceDelay = TimeSpan.FromMilliseconds(350);
 
     /// <summary>True while the editors are being filled from a file, so that doesn't count as an edit.</summary>
@@ -547,14 +547,12 @@ public partial class MainWindow : Window
             ShowStatus($"Copied: {FirstLine(textToCopy)}");
         }
 
-        // In Action mode, finishing a step moves on to the next one by itself (not with "Show all": it's all on screen).
+        // Finishing a step moves on to the next one by itself, in both modes.
+        // With "Show all" that selects the next step on the left and scrolls its buttons into view.
         if (!wasFinished && IsStepFinished(selectedStep))
         {
             RecordAction("Done", selectedStep.DisplayName, string.Empty);
-            if (ActionModeRadioButton.IsChecked == true && !showAllSteps)
-            {
-                ScheduleAdvanceFrom(selectedStep);
-            }
+            ScheduleAdvanceFrom(selectedStep);
         }
     }
 
@@ -688,7 +686,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// After a short pause, selects the next step that still has buttons left (wrapping around to the top).
-    /// Nothing happens if another step was picked or a button was re-enabled in the meantime.
+    /// Nothing happens if a button was re-enabled in the meantime, or (without "Show all", where the
+    /// finished step is the one on screen) if another step was picked.
     /// </summary>
     private void ScheduleAdvanceFrom(WorkStep finishedStep)
     {
@@ -699,7 +698,8 @@ public partial class MainWindow : Window
 
             // The editors may have been changed meanwhile, so look the step up again by its key.
             int finishedIndex = currentSteps.FindIndex(workStep => workStep.Key == finishedStep.Key);
-            if (finishedIndex < 0 || StepListBox.SelectedIndex != finishedIndex || !IsStepFinished(currentSteps[finishedIndex]))
+            bool otherStepPicked = !showAllSteps && StepListBox.SelectedIndex != finishedIndex;
+            if (finishedIndex < 0 || otherStepPicked || !IsStepFinished(currentSteps[finishedIndex]))
             {
                 return;
             }
@@ -905,7 +905,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// True when a step is finished: every button greyed out, or (with "Keep buttons active", where a click
-    /// doesn't grey out) every button copied at least once. This decides when Action mode moves on.
+    /// doesn't grey out) every button copied at least once. This decides when Paster moves on to the next step.
     /// </summary>
     private bool IsStepFinished(WorkStep workStep)
     {

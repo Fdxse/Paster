@@ -123,8 +123,8 @@
                 <ListItem><Paragraph><Bold>Hover</Bold> over a button to see the full text it will copy.</Paragraph></ListItem>
                 <ListItem><Paragraph><Bold>Reset table</Bold> (Reset step with layers) makes every button in the selected row clickable again; <Bold>Reset all</Bold> does it everywhere.</Paragraph></ListItem>
                 <ListItem><Paragraph>The list on the left shows how many buttons you have copied per row, e.g. 2/5, and greys out a row with a ✓ when it is done. The progress bar above the buttons shows the total.</Paragraph></ListItem>
-                <ListItem><Paragraph>In Action mode, finishing a row jumps to the next row that still has buttons left. A row is finished when every button is greyed out, or, with Keep buttons active, when every button has been copied at least once.</Paragraph></ListItem>
-                <ListItem><Paragraph><Bold>Show all</Bold> (top bar) lists the buttons of every row in one list, with a heading per table / step, so there is no clicking between rows. Handy when each step has only one or two buttons. Picking a row on the left scrolls to it. It is saved in the setup file. (With Show all, Fill the window is not used; the list scrolls.)</Paragraph></ListItem>
+                <ListItem><Paragraph>Finishing a row jumps to the next row that still has buttons left. A row is finished when every button is greyed out, or, with Keep buttons active, when every button has been copied at least once.</Paragraph></ListItem>
+                <ListItem><Paragraph><Bold>Show all</Bold> (top bar) lists the buttons of every row in one list, with a heading per table / step, so there is no clicking between rows. Handy when each step has only one or two buttons. Picking a row on the left scrolls to it, and finishing a step scrolls on to the next one. It is saved in the setup file. (With Show all, Fill the window is not used; the list scrolls.)</Paragraph></ListItem>
             </List>
 
             <Paragraph Style="{StaticResource SectionHeading}">10. Action log</Paragraph>
