@@ -26,6 +26,12 @@ public sealed class SetupFile
     /// <summary>How the steps are listed when layers are used: "layer" or "table".</summary>
     public string WalkOrder { get; set; } = ByLayerWalkOrder;
 
+    /// <summary>
+    /// True to list the buttons of every step in one list (with a heading per step) instead of only the selected step's.
+    /// Handy when each step has just one or two buttons.
+    /// </summary>
+    public bool ShowAllSteps { get; set; }
+
     /// <summary>Global variable lines, e.g. "schema=wrk".</summary>
     public List<string> Variables { get; set; } = new();
 

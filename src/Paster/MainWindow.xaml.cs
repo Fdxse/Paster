@@ -26,6 +26,15 @@ public partial class MainWindow : Window
     /// </summary>
     private readonly Dictionary<string, HashSet<string>> usedTextsByStep = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Which buttons have been copied at least once, per step (same keys and texts as <see cref="usedTextsByStep"/>).
+    /// With "Keep buttons active" buttons don't grey out, so this is how Paster knows a step is finished.
+    /// </summary>
+    private readonly Dictionary<string, HashSet<string>> copiedTextsByStep = new(StringComparer.Ordinal);
+
+    /// <summary>"Show all": every step's buttons in one list. Part of the setup file.</summary>
+    private bool showAllSteps;
+
     /// <summary>The most recent parse of the five editors.</summary>
     private ParsedSetup currentSetup = new();
 
@@ -302,10 +311,24 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Builds the buttons for the selected step.
+    /// Builds the buttons for the selected step, or with "Show all" the buttons of every step with a heading per step.
     /// </summary>
     private void RebuildButtons()
     {
+        if (showAllSteps)
+        {
+            SelectedTableHeader.Text = "All buttons";
+            var allItems = new List<object>();
+            foreach (WorkStep workStep in currentSteps)
+            {
+                allItems.Add(new StepHeaderItem { StepKey = workStep.Key, StepName = workStep.DisplayName });
+                allItems.AddRange(BuildButtonItems(workStep));
+            }
+
+            ButtonItemsControl.ItemsSource = allItems;
+            return;
+        }
+
         WorkStep? selectedStep = GetSelectedStep();
         if (selectedStep is null)
         {
@@ -315,12 +338,19 @@ public partial class MainWindow : Window
         }
 
         SelectedTableHeader.Text = $"Buttons for {selectedStep.DisplayName}";
+        ButtonItemsControl.ItemsSource = BuildButtonItems(selectedStep).Cast<object>().ToList();
+    }
 
-        HashSet<string> usedTexts = GetUsedTexts(selectedStep);
-        var templateRenderer = new TemplateRenderer(currentSetup, selectedStep);
+    /// <summary>
+    /// One clipboard button per button template that applies to the step.
+    /// </summary>
+    private List<ClipboardButtonItem> BuildButtonItems(WorkStep workStep)
+    {
+        HashSet<string> usedTexts = GetUsedTexts(workStep);
+        var templateRenderer = new TemplateRenderer(currentSetup, workStep);
         var buttonItems = new List<ClipboardButtonItem>();
 
-        foreach (ButtonTemplate buttonTemplate in WorkPlanner.ButtonsFor(currentSetup, selectedStep))
+        foreach (ButtonTemplate buttonTemplate in WorkPlanner.ButtonsFor(currentSetup, workStep))
         {
             // Rendered without a counter value: {counter} stays as it is, so this text identifies the button.
             RenderResult renderResult = templateRenderer.Render(buttonTemplate.Template);
@@ -329,6 +359,7 @@ public partial class MainWindow : Window
 
             var buttonItem = new ClipboardButtonItem
             {
+                Step = workStep,
                 RenderedText = renderResult.Text,
                 Template = buttonTemplate.Template,
                 LabelTemplate = buttonTemplate.Label,
@@ -336,12 +367,16 @@ public partial class MainWindow : Window
                 HasError = allErrors.Count > 0,
                 IsUsed = usedTexts.Contains(renderResult.Text),
             };
-            ShowButtonTexts(buttonItem, selectedStep, allErrors);
+            ShowButtonTexts(buttonItem, workStep, allErrors);
             buttonItems.Add(buttonItem);
         }
 
-        ButtonItemsControl.ItemsSource = buttonItems;
+        return buttonItems;
     }
+
+    /// <summary>The clipboard buttons currently in the list (headings left out).</summary>
+    private IEnumerable<ClipboardButtonItem> ShownButtonItems =>
+        (ButtonItemsControl.ItemsSource as IEnumerable<object> ?? Enumerable.Empty<object>()).OfType<ClipboardButtonItem>();
 
     /// <summary>
     /// Fills in what a button shows and its tooltip. A labelled block shows its (rendered) label on the button;
@@ -377,22 +412,16 @@ public partial class MainWindow : Window
     /// </summary>
     private void RefreshCounterButtons()
     {
-        WorkStep? selectedStep = GetSelectedStep();
-        if (selectedStep is null || ButtonItemsControl.ItemsSource is not List<ClipboardButtonItem> buttonItems)
-        {
-            return;
-        }
-
-        foreach (ClipboardButtonItem buttonItem in buttonItems.Where(buttonItem => buttonItem.UsesCounter))
+        foreach (ClipboardButtonItem buttonItem in ShownButtonItems.Where(buttonItem => buttonItem.UsesCounter))
         {
             // Errors don't depend on the counter, so the ones already in the tooltip are kept.
-            List<string> errors = new TemplateRenderer(currentSetup, selectedStep).Render(buttonItem.Template).Errors;
+            List<string> errors = new TemplateRenderer(currentSetup, buttonItem.Step).Render(buttonItem.Template).Errors;
             if (buttonItem.LabelTemplate is not null)
             {
-                errors.AddRange(new TemplateRenderer(currentSetup, selectedStep).Render(buttonItem.LabelTemplate).Errors);
+                errors.AddRange(new TemplateRenderer(currentSetup, buttonItem.Step).Render(buttonItem.LabelTemplate).Errors);
             }
 
-            ShowButtonTexts(buttonItem, selectedStep, errors);
+            ShowButtonTexts(buttonItem, buttonItem.Step, errors);
         }
     }
 
@@ -410,9 +439,38 @@ public partial class MainWindow : Window
         return currentSteps[selectedIndex];
     }
 
+    /// <summary>
+    /// Picking a row shows its buttons; with "Show all" it scrolls to that step's heading instead.
+    /// </summary>
     private void StepListBox_SelectionChanged(object sender, SelectionChangedEventArgs eventArgs)
     {
-        RebuildButtons();
+        if (showAllSteps)
+        {
+            ScrollToSelectedStep();
+        }
+        else
+        {
+            RebuildButtons();
+        }
+    }
+
+    /// <summary>
+    /// With "Show all": scrolls the button list so the selected step's heading is in view.
+    /// Done once the list has been laid out, since a freshly filled list has no elements to scroll to yet.
+    /// </summary>
+    private void ScrollToSelectedStep()
+    {
+        string? selectedKey = (StepListBox.SelectedItem as StepListItem)?.StepKey;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            object? stepHeader = (ButtonItemsControl.ItemsSource as IEnumerable<object>)?
+                .OfType<StepHeaderItem>()
+                .FirstOrDefault(headerItem => headerItem.StepKey == selectedKey);
+            if (stepHeader is not null && ButtonItemsControl.ItemContainerGenerator.ContainerFromItem(stepHeader) is FrameworkElement headerElement)
+            {
+                headerElement.BringIntoView();
+            }
+        });
     }
 
     // ------------------------------------------------------------------
@@ -437,11 +495,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        WorkStep? selectedStep = GetSelectedStep();
-        if (selectedStep is null)
-        {
-            return;
-        }
+        // The button's own step: the selected one, or with "Show all" any step in the list.
+        WorkStep selectedStep = buttonItem.Step;
 
         bool isControlHeld = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         bool keepButtonsActive = KeepActiveCheckBox.IsChecked == true;
@@ -474,25 +529,32 @@ public partial class MainWindow : Window
             return;
         }
 
+        bool wasFinished = IsStepFinished(selectedStep);
+        GetCopiedTexts(selectedStep).Add(buttonItem.RenderedText);
         ChangeClickCount(preferences.ClickCount + 1);
         RecordAction("Copied", selectedStep.DisplayName, textToCopy);
 
         if (keepButtonsActive && !isControlHeld)
         {
             // Copy only; the button keeps its look.
+            UpdateStepProgress(selectedStep);
             ShowStatus($"Copied: {FirstLine(textToCopy)}");
-            return;
+        }
+        else
+        {
+            // Classic click, or Ctrl+click with "Keep buttons active": grey the button out.
+            SetButtonUsed(buttonItem, selectedStep, isUsed: true);
+            ShowStatus($"Copied: {FirstLine(textToCopy)}");
         }
 
-        // Classic click, or Ctrl+click with "Keep buttons active": grey the button out.
-        SetButtonUsed(buttonItem, selectedStep, isUsed: true);
-        ShowStatus($"Copied: {FirstLine(textToCopy)}");
-
-        // In Action mode, the last button of a step moves on to the next step by itself.
-        if (ActionModeRadioButton.IsChecked == true && IsStepComplete(selectedStep))
+        // In Action mode, finishing a step moves on to the next one by itself (not with "Show all": it's all on screen).
+        if (!wasFinished && IsStepFinished(selectedStep))
         {
             RecordAction("Done", selectedStep.DisplayName, string.Empty);
-            ScheduleAdvanceFrom(selectedStep);
+            if (ActionModeRadioButton.IsChecked == true && !showAllSteps)
+            {
+                ScheduleAdvanceFrom(selectedStep);
+            }
         }
     }
 
@@ -531,7 +593,7 @@ public partial class MainWindow : Window
             usedTexts.Remove(buttonItem.RenderedText);
         }
 
-        UpdateSelectedStepProgress(selectedStep);
+        UpdateStepProgress(selectedStep);
         UpdateOverallProgress();
     }
 
@@ -637,7 +699,7 @@ public partial class MainWindow : Window
 
             // The editors may have been changed meanwhile, so look the step up again by its key.
             int finishedIndex = currentSteps.FindIndex(workStep => workStep.Key == finishedStep.Key);
-            if (finishedIndex < 0 || StepListBox.SelectedIndex != finishedIndex || !IsStepComplete(currentSteps[finishedIndex]))
+            if (finishedIndex < 0 || StepListBox.SelectedIndex != finishedIndex || !IsStepFinished(currentSteps[finishedIndex]))
             {
                 return;
             }
@@ -645,7 +707,7 @@ public partial class MainWindow : Window
             for (int offset = 1; offset < currentSteps.Count; offset++)
             {
                 int candidateIndex = (finishedIndex + offset) % currentSteps.Count;
-                if (!IsStepComplete(currentSteps[candidateIndex]))
+                if (!IsStepFinished(currentSteps[candidateIndex]))
                 {
                     StepListBox.SelectedIndex = candidateIndex;
                     StepListBox.ScrollIntoView(StepListBox.SelectedItem);
@@ -671,8 +733,9 @@ public partial class MainWindow : Window
         }
 
         usedTextsByStep.Remove(selectedStep.Key);
+        copiedTextsByStep.Remove(selectedStep.Key);
         RebuildButtons();
-        UpdateSelectedStepProgress(selectedStep);
+        UpdateStepProgress(selectedStep);
         UpdateOverallProgress();
         ShowStatus($"All buttons for {selectedStep.DisplayName} are enabled again.");
         RecordAction("Reset", selectedStep.DisplayName, string.Empty);
@@ -793,7 +856,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void ResetAllButton_Click(object sender, RoutedEventArgs eventArgs)
     {
-        if (usedTextsByStep.Values.All(usedTexts => usedTexts.Count == 0))
+        if (usedTextsByStep.Values.All(usedTexts => usedTexts.Count == 0) && copiedTextsByStep.Values.All(copiedTexts => copiedTexts.Count == 0))
         {
             return;
         }
@@ -806,21 +869,86 @@ public partial class MainWindow : Window
         }
 
         usedTextsByStep.Clear();
+        copiedTextsByStep.Clear();
         RefreshEverything();
         ShowStatus("All buttons are enabled again.");
         RecordAction("Reset all", string.Empty, string.Empty);
     }
 
     /// <summary>
-    /// Updates the "2/5" counter and the greyed-out look of the selected row without rebuilding the whole list.
+    /// Updates the "2/5" counter and the greyed-out look of a step's row without rebuilding the whole list.
     /// </summary>
-    private void UpdateSelectedStepProgress(WorkStep selectedStep)
+    private void UpdateStepProgress(WorkStep workStep)
     {
-        if (StepListBox.SelectedItem is StepListItem selectedListItem)
+        StepListItem? stepListItem = (StepListBox.ItemsSource as IEnumerable<StepListItem>)?
+            .FirstOrDefault(listItem => listItem.StepKey == workStep.Key);
+        if (stepListItem is not null)
         {
-            selectedListItem.ProgressText = BuildProgressText(selectedStep);
-            selectedListItem.IsComplete = IsStepComplete(selectedStep);
+            stepListItem.ProgressText = BuildProgressText(workStep);
+            stepListItem.IsComplete = IsStepComplete(workStep);
         }
+    }
+
+    /// <summary>
+    /// The set of texts copied at least once for a step, created on first use.
+    /// </summary>
+    private HashSet<string> GetCopiedTexts(WorkStep workStep)
+    {
+        if (!copiedTextsByStep.TryGetValue(workStep.Key, out HashSet<string>? copiedTexts))
+        {
+            copiedTexts = new HashSet<string>(StringComparer.Ordinal);
+            copiedTextsByStep[workStep.Key] = copiedTexts;
+        }
+
+        return copiedTexts;
+    }
+
+    /// <summary>
+    /// True when a step is finished: every button greyed out, or (with "Keep buttons active", where a click
+    /// doesn't grey out) every button copied at least once. This decides when Action mode moves on.
+    /// </summary>
+    private bool IsStepFinished(WorkStep workStep)
+    {
+        if (IsStepComplete(workStep))
+        {
+            return true;
+        }
+
+        if (KeepActiveCheckBox.IsChecked != true)
+        {
+            return false;
+        }
+
+        HashSet<string> copiedTexts = GetCopiedTexts(workStep);
+        var templateRenderer = new TemplateRenderer(currentSetup, workStep);
+        return WorkPlanner.ButtonsFor(currentSetup, workStep)
+            .All(buttonTemplate => copiedTexts.Contains(templateRenderer.Render(buttonTemplate.Template).Text));
+    }
+
+    // ------------------------------------------------------------------
+    // Show all (every step's buttons in one list)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// "Show all" was switched on or off. The choice is part of the setup, so it marks the setup as changed.
+    /// </summary>
+    private void ShowAllCheckBox_Changed(object sender, RoutedEventArgs eventArgs)
+    {
+        if (isLoadingSetup || ButtonItemsControl is null)
+        {
+            return;
+        }
+
+        showAllSteps = ShowAllCheckBox.IsChecked == true;
+        ApplyButtonSizing();
+        RebuildButtons();
+        if (showAllSteps)
+        {
+            ScrollToSelectedStep();
+        }
+
+        hasUnsavedSetupChanges = true;
+        UpdateTitle();
     }
 
     // ------------------------------------------------------------------
@@ -1019,7 +1147,8 @@ public partial class MainWindow : Window
         }
 
         bool isActionMode = ActionModeRadioButton.IsChecked == true;
-        bool fillWindow = isActionMode && actionButtonSize == SetupFile.FillButtonSize;
+        // "Fill the window" shares the height between the buttons of one step; with "Show all" the list scrolls instead.
+        bool fillWindow = isActionMode && actionButtonSize == SetupFile.FillButtonSize && !showAllSteps;
 
         Resources["ClipboardButtonMinHeight"] = isActionMode && !fillWindow ? actionButtonHeight : 0.0;
         Resources["ClipboardButtonFontSize"] = isActionMode ? actionFontSize : SetupModeFontSize;
@@ -1397,7 +1526,20 @@ public partial class MainWindow : Window
             isLoadingSetup = false;
         }
 
+        showAllSteps = setup.ShowAllSteps;
+        isLoadingSetup = true;
+        try
+        {
+            ShowAllCheckBox.IsChecked = showAllSteps;
+        }
+        finally
+        {
+            isLoadingSetup = false;
+        }
+
+        ApplyButtonSizing();
         usedTextsByStep.Clear();
+        copiedTextsByStep.Clear();
         currentSetupFilePath = filePath;
         hasUnsavedSetupChanges = false;
 
@@ -1455,6 +1597,7 @@ public partial class MainWindow : Window
             Tables = SplitEditorLines(TablesTextBox.Text),
             Layers = SplitEditorLines(LayersTextBox.Text),
             WalkOrder = walkOrder == WalkOrder.ByTable ? SetupFile.ByTableWalkOrder : SetupFile.ByLayerWalkOrder,
+            ShowAllSteps = showAllSteps,
             Variables = SplitEditorLines(VariablesTextBox.Text),
             Joiners = SplitEditorLines(JoinersTextBox.Text),
             Buttons = SplitEditorLines(ButtonsTextBox.Text),

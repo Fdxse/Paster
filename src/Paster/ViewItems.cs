@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using Paster.Engine;
 
 namespace Paster;
 
@@ -68,6 +69,9 @@ public sealed class ClipboardButtonItem : ObservableObject
 {
     private bool isUsed;
     private string displayText = string.Empty;
+
+    /// <summary>The step (table, plus layer) this button belongs to. With "Show all" the list holds buttons of every step.</summary>
+    public WorkStep Step { get; init; } = new();
     private string toolTipText = string.Empty;
 
     /// <summary>
@@ -113,4 +117,16 @@ public sealed class ClipboardButtonItem : ObservableObject
         get => isUsed;
         set => SetProperty(ref isUsed, value);
     }
+}
+
+/// <summary>
+/// A heading between the buttons when "Show all" lists every step's buttons in one list, e.g. "DBTable · wrk".
+/// </summary>
+public sealed class StepHeaderItem
+{
+    /// <summary>Identifies the step (see <see cref="WorkStep.Key"/>), used to scroll to it when it is picked on the left.</summary>
+    public string StepKey { get; init; } = string.Empty;
+
+    /// <summary>The step name shown as the heading.</summary>
+    public string StepName { get; init; } = string.Empty;
 }
